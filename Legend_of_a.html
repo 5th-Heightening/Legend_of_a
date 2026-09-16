@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>ASCII Game</title>
+
+    <style>
+        body {
+            background: #111;
+            color: #eee;
+            margin: 0;
+            min-height: 100vh;
+
+            display: flex;
+            justify-content: center;
+            align-items: center;
+
+            font-family: monospace;
+        }
+
+        #viewport {
+            width: 36ch;
+            height: 18em;
+
+            margin: 0;
+            padding: 0;
+
+            font-family: monospace;
+            font-size: 20px;
+            line-height: 1;
+
+            white-space: pre;
+            overflow: hidden;
+
+            background: #000;
+            color: #fff;
+
+            user-select: none;
+        }
+    </style>
+</head>
+
+<body>
+
+<pre id="viewport"></pre>
+
+<script>
+
+    // ==================================================
+    // ASCII Renderer
+    // ==================================================
+
+    class AsciiRenderer {
+
+        constructor(element, width = 36, height = 18) {
+            this.element = element;
+
+            this.width = width;
+            this.height = height;
+
+            this.objects = [];
+        }
+
+
+        /**
+         * Add an actual game object to the renderer.
+         *
+         * The renderer keeps the original object reference.
+         */
+        add(object) {
+            this.objects.push(object);
+        }
+
+
+        remove(object) {
+            const index = this.objects.indexOf(object);
+
+            if (index !== -1) {
+                this.objects.splice(index, 1);
+            }
+        }
+
+
+        /**
+         * Render the complete game world.
+         */
+        render() {
+
+            // Create empty viewport.
+            const buffer = Array.from(
+                { length: this.height },
+                () => Array(this.width).fill(" ")
+            );
+
+
+            // Lowest Z gets rendered first.
+            const objects = [...this.objects]
+                .sort((a, b) => a.z - b.z);
+
+
+            for (const object of objects) {
+                this.renderObject(buffer, object);
+            }
+
+
+            // Display buffer.
+            this.element.textContent = buffer
+                .map(row => row.join(""))
+                .join("\n");
+        }
+
+
+        renderObject(buffer, object) {
+
+            const ascii = object.getAscii();
+
+            const transparentChar =
+                object.transparentChar ?? " ";
+
+            const lines = ascii.split("\n");
+
+
+            for (let dy = 0; dy < lines.length; dy++) {
+
+                const line = lines[dy];
+
+
+                for (let dx = 0; dx < line.length; dx++) {
+
+                    const x = object.x + dx;
+                    const y = object.y + dy;
+
+                    // Outside viewport.
+                    if (
+                        x < 0 ||
+                        x >= this.width ||
+                        y < 0 ||
+                        y >= this.height
+                    ) {
+                        continue;
+                    }
+
+
+                    const character = line[dx];
+
+
+                    // Transparent characters don't overwrite
+                    // what has already been rendered.
+                    if (character === transparentChar) {
+                        continue;
+                    }
+
+
+                    buffer[y][x] = character;
+                }
+            }
+        }
+    }
+
+
+    // ==================================================
+    // Example Game Objects
+    // ==================================================
+
+    class Tree {
+
+        constructor(x, y) {
+            this.x = x;
+            this.y = y;
+            this.z = 10;
+        }
+
+
+        getAscii() {
+            return `
+ /\\
+/##\\
+ || 
+ || `;
+        }
+    }
+
+
+    class Player {
+
+        constructor(x, y) {
+            this.x = x;
+            this.y = y;
+            this.z = 20;
+        }
+
+
+        getAscii() {
+            return `
+ O
+/|\\
+/ \\`;
+        }
+
+
+        move(dx, dy) {
+            this.x += dx;
+            this.y += dy;
+        }
+    }
+
+
+    class Ground {
+
+        constructor() {
+            this.x = 0;
+            this.y = 0;
+            this.z = 0;
+
+            this.transparentChar = ".";
+        }
+
+
+        getAscii() {
+            return `
+....................................
+....................................
+....................................
+....................................
+....................................
+....................................
+....................................
+....................................
+....................................
+....................................
+....................................
+....................................
+....................................
+....................................
+....................................
+....................................
+....................................
+....................................`;
+        }
+    }
+
+
+    // ==================================================
+    // Game
+    // ==================================================
+
+    const viewport = document.getElementById("viewport");
+
+    const renderer = new AsciiRenderer(
+        viewport,
+        36,
+        18
+    );
+
+
+    const ground = new Ground();
+    const tree = new Tree(5, 4);
+    const player = new Player(15, 10);
+
+
+    // The actual game objects are registered.
+    renderer.add(ground);
+    renderer.add(tree);
+    renderer.add(player);
+
+
+    renderer.render();
+
+
+    // ==================================================
+    // Example: move the actual game object
+    // ==================================================
+
+    document.addEventListener("keydown", event => {
+
+        switch (event.key) {
+
+            case "ArrowUp":
+                player.move(0, -1);
+                break;
+
+            case "ArrowDown":
+                player.move(0, 1);
+                break;
+
+            case "ArrowLeft":
+                player.move(-1, 0);
+                break;
+
+            case "ArrowRight":
+                player.move(1, 0);
+                break;
+
+            default:
+                return;
+        }
+
+        renderer.render();
+    });
+
+</script>
+
+</body>
+</html>
+
