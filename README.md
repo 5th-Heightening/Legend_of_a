@@ -13,6 +13,17 @@ A single-file ASCII-art game. Everything runs client-side in
 | [SpeechBubble.js](SpeechBubble.js) | Speech bubble renderable — **written but not yet wired in** (no `<script src>`, never instantiated) |
 | [logo.txt](logo.txt) | Scratch notes / ASCII sketches (player facing variants, color list). Not read by any code — a reference doodle pad, not an asset |
 
+## Theme toggle
+
+The `#theme-toggle` button (top-right, fixed position) and its small,
+standalone `<script>` block are entirely separate from the game —
+they just flip a `light-mode` class on `<html>` via
+`classList.toggle`, and CSS variables (`--bg`, `--fg`,
+`--viewport-bg`, `--viewport-fg`, defined on `:root` / `:root.light-mode`
+in `<style>`) do the rest. No game object, renderer state, or
+`localStorage` is involved — reloading the page always starts back in
+dark mode.
+
 ## Rendering model
 
 `AsciiRenderer` (in `Legend_of_a.html`) owns a `width x height` character
