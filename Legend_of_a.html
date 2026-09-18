@@ -448,6 +448,10 @@
             this.x = x;
             this.y = y;
             this.z = 20;
+
+            // Last horizontal direction faced, kept even while
+            // moving vertically or standing still.
+            this.facing = "right";
         }
 
 
@@ -459,6 +463,57 @@
         move(dx, dy) {
             this.x += dx;
             this.y += dy;
+        }
+    }
+
+
+    // One-shot sword swing, one tile in front of the player. Starts
+    // as "/", switches to "_" partway through, then removes itself.
+    class Sword {
+
+        constructor(player) {
+            this.z = 25;
+
+            const offset = player.facing === "left" ? -1 : 1;
+
+            this.x = player.x + offset;
+            this.y = player.y;
+
+            this.char = ((offset == 1) ? "/" : "\\");
+        }
+
+
+        getAscii() {
+            return this.char;
+        }
+    }
+
+
+    // Shield held out in front of the player, in whichever
+    // direction it's currently facing. Stays glued to the player
+    // via getters, since it's shown for as long as a key is held
+    // rather than for a fixed duration.
+    class Shield {
+
+        constructor(player) {
+            this.player = player;
+            this.z = 25;
+        }
+
+
+        get x() {
+            const offset = this.player.facing === "left" ? -1 : 1;
+            return this.player.x + offset;
+        }
+
+
+        get y() {
+            return this.player.y;
+        }
+
+
+        getAscii() {
+            return this.player.facing === "left" ? "[" : "]";
         }
     }
 
@@ -478,6 +533,44 @@
             const row = ".".repeat(41);
 
             return "\n" + Array(18).fill(row).join("\n");
+        }
+    }
+
+
+    // Walks back and forth along a fixed row between minX and
+    // maxX, reversing direction at either end. Movement isn't
+    // driven by player input - see the patrol timer in the game
+    // section.
+    class Enemy {
+
+        constructor(x, y, minX, maxX) {
+            this.x = x;
+            this.y = y;
+            this.z = 15;
+
+            this.minX = minX;
+            this.maxX = maxX;
+
+            this.direction = 1;
+        }
+
+
+        getAscii() {
+            return "E";
+        }
+
+
+        step() {
+            this.x += this.direction;
+
+            if (this.x >= this.maxX) {
+                this.x = this.maxX;
+                this.direction = -1;
+            }
+            else if (this.x <= this.minX) {
+                this.x = this.minX;
+                this.direction = 1;
+            }
         }
     }
 
@@ -543,6 +636,9 @@
 
     const ground = new Ground();
     const player = new Player(15, 10);
+
+    const enemy = new Enemy(5, 12, 5, 35);
+    const ENEMY_STEP_INTERVAL = 400;
 
     const tree = new Tree({
         topLeft: { x: 3, y: 3 },
@@ -652,9 +748,74 @@
         renderer.add(ground);
         renderer.add(mountain);
         renderer.add(tree);
+        renderer.add(enemy);
         renderer.add(player);
 
         updateParallax();
+        renderer.render();
+
+        setInterval(() => {
+            enemy.step();
+            renderer.render();
+        }, ENEMY_STEP_INTERVAL);
+    }
+
+
+    // ==================================================
+    // Combat: sword swing (W, one-shot) and shield (A, held)
+    // ==================================================
+
+    const SWORD_FRAME_DURATION = 120;
+
+    let sword = null;
+
+    function swingSword() {
+
+        // A swing already in progress isn't interrupted or restarted.
+        if (sword) {
+            return;
+        }
+
+        sword = new Sword(player);
+        renderer.add(sword);
+        renderer.render();
+
+        setTimeout(() => {
+            sword.char = "_";
+            renderer.render();
+
+            setTimeout(() => {
+                renderer.remove(sword);
+                sword = null;
+                renderer.render();
+            }, SWORD_FRAME_DURATION);
+
+        }, SWORD_FRAME_DURATION);
+    }
+
+
+    let shield = null;
+
+    function showShield() {
+
+        if (shield) {
+            return;
+        }
+
+        shield = new Shield(player);
+        renderer.add(shield);
+        renderer.render();
+    }
+
+
+    function hideShield() {
+
+        if (!shield) {
+            return;
+        }
+
+        renderer.remove(shield);
+        shield = null;
         renderer.render();
     }
 
@@ -673,6 +834,24 @@
             return;
         }
 
+        const key = event.key.toLowerCase();
+
+        if (key === "w") {
+
+            // Ignore auto-repeat while the key is held - one press,
+            // one swing.
+            if (!event.repeat) {
+                swingSword();
+            }
+
+            return;
+        }
+
+        if (key === "a") {
+            showShield();
+            return;
+        }
+
         let dx = 0;
         let dy = 0;
 
@@ -688,10 +867,12 @@
 
             case "ArrowLeft":
                 dx = -1;
+                player.facing = "left";
                 break;
 
             case "ArrowRight":
                 dx = 1;
+                player.facing = "right";
                 break;
 
             default:
@@ -708,6 +889,14 @@
 
         updateParallax();
         renderer.render();
+    });
+
+
+    document.addEventListener("keyup", event => {
+
+        if (event.key.toLowerCase() === "a") {
+            hideShield();
+        }
     });
 
 </script>

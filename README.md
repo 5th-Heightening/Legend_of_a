@@ -79,6 +79,71 @@ primitive but isn't called by the input handler directly anymore — see
 live in the game section, not on `Player`, since they're really
 viewport bounds.
 
+`player.facing` is `"left"` or `"right"` (default `"right"`), set only
+by `ArrowLeft`/`ArrowRight` in the `keydown` handler — `ArrowUp`/`Down`
+leave it untouched, and it updates even if the move itself is blocked
+by a collision, since it's about which way the player is turned, not
+whether they actually moved.
+
+## Combat: sword and shield
+
+Both live one tile out from the player, on whichever side
+`player.facing` currently points, and neither is affected by movement
+collision (`wouldCollideAt` only checks `parallaxObjects`) or by
+parallax — they're relative to the player, not scenery.
+
+- **`Sword`** (`W`, in the `keydown` handler's `swingSword()`) is a
+  one-shot, timer-driven animation: on press it's added to the
+  renderer as `"/"`, `setTimeout` flips its `char` to `"_"` after
+  `SWORD_FRAME_DURATION` (120ms), and a second `setTimeout` removes it
+  after another 120ms. The `sword` variable doubles as a re-entrancy
+  guard — `swingSword()` no-ops while it's non-null — and the
+  `keydown` handler also checks `!event.repeat`, so holding `W` down
+  triggers exactly one swing per physical press, not continuous OS
+  key-repeat swings. Position is captured once at swing start (from
+  `player.x/y/facing` at that instant) and does not track further
+  player movement mid-swing.
+- **`Shield`** (`A`, held) is the opposite: no timer, glued to the
+  player for as long as the key is down. Its `x`/`y`/`getAscii()` are
+  getters reading `player.x`/`player.y`/`player.facing` live, so it
+  stays correctly positioned through any moves made while `A` is held,
+  with no per-move update needed. `showShield()` on `keydown` and
+  `hideShield()` on a separate `keyup` listener add/remove it;
+  `showShield()` is idempotent (checks `shield` first) so repeated
+  auto-repeat keydowns while holding `A` are harmless. Character is
+  `"["` when facing left, `"]"` when facing right.
+
+Known gap: if the browser never delivers a `keyup` for `A` (e.g. focus
+leaves the page while it's held), the shield can get stuck on. There's
+no blur-handler safety net for that yet.
+
+## Enemy
+
+`Enemy` (`enemy`, `z = 15`, drawn as `"E"`) is the first game object
+that moves on its own, independent of player input. It walks a fixed
+row (`y = 12` currently) back and forth between `minX`/`maxX`
+(`5`/`35`), reversing `direction` in `step()` whenever it hits either
+end. `startGame()` starts a `setInterval` (`ENEMY_STEP_INTERVAL`,
+400ms) that calls `enemy.step()` + `renderer.render()` on its own
+cadence — this is the first thing in the game that re-renders without
+a keypress causing it, so it's also the first evidence that
+`renderer.render()` is cheap enough to call from multiple independent
+timers without coordination.
+
+Not done yet, deliberately out of scope for now:
+
+- The enemy isn't in `parallaxObjects` (it has no corners, its
+  position isn't a function of the player) and isn't checked in
+  `wouldCollideAt` — walking into it doesn't block the player, and it
+  doesn't react to the player at all yet.
+- No interaction with `Sword`/`Shield` — nothing currently checks
+  whether a swing overlaps the enemy, or blocks damage while `Shield`
+  is up. `renderer.getCollisionShape()`'s default (fall back to
+  `getAscii()`) already works for `Enemy` with no changes needed if
+  `objectsCollide`/`detectCollisions` gets wired up for combat later.
+- One enemy, one hardcoded patrol row — no patrol-path data structure,
+  no spawning/despawning, no chase/aggro behavior.
+
 ## Parallax scenery
 
 This is the newest piece and the one most likely to need tuning or
