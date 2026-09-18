@@ -1,3 +1,7 @@
+/**
+
+*/
+
 class SpeechBubble {
 
     constructor(x, y, text, options = {}) {

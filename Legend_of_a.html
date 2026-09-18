@@ -21,7 +21,7 @@
         }
 
         #viewport {
-            width: 36ch;
+            width: 41ch;
             height: 18em;
 
             margin: 0;
@@ -45,6 +45,8 @@
 <body>
 
 <pre id="viewport"></pre>
+
+<script src="SplashScreen.js"></script>
 
 <script>
 
@@ -332,15 +334,85 @@
 
 
     // ==================================================
+    // Parallax scenery
+    //
+    // An environment piece doesn't have a fixed position.
+    // Instead, it has 4 predefined positions - one for
+    // each corner the player can stand in - and its actual
+    // position is linearly interpolated between them based
+    // on where the player currently is. Pieces with a wider
+    // spread of corner positions appear to move more,
+    // giving a pseudo-3D parallax effect.
+    // ==================================================
+
+    class ParallaxObject {
+
+        constructor(corners, z) {
+            this.corners = corners;
+            this.z = z;
+
+            this.x = corners.topLeft.x;
+            this.y = corners.topLeft.y;
+        }
+
+
+        static lerp(a, b, t) {
+            return a + (b - a) * t;
+        }
+
+
+        // t: player's horizontal position, 0 (left) .. 1 (right)
+        // u: player's vertical position, 0 (top) .. 1 (bottom)
+        //
+        // Pure - returns where this object would be, without
+        // moving it. Used both to actually move the object and
+        // to predict its position for a collision check before
+        // a move is committed.
+        interpolatePosition(t, u) {
+
+            const { topLeft, topRight, bottomLeft, bottomRight } =
+                this.corners;
+
+            const topX = ParallaxObject.lerp(topLeft.x, topRight.x, t);
+            const topY = ParallaxObject.lerp(topLeft.y, topRight.y, t);
+
+            const bottomX =
+                ParallaxObject.lerp(bottomLeft.x, bottomRight.x, t);
+            const bottomY =
+                ParallaxObject.lerp(bottomLeft.y, bottomRight.y, t);
+
+            return {
+                x: Math.round(ParallaxObject.lerp(topX, bottomX, u)),
+                y: Math.round(ParallaxObject.lerp(topY, bottomY, u))
+            };
+        }
+
+
+        updatePosition(t, u) {
+            const { x, y } = this.interpolatePosition(t, u);
+
+            this.x = x;
+            this.y = y;
+        }
+
+
+        // Default collision shape: the whole visible shape blocks
+        // movement. Override in a subclass for a smaller footprint
+        // (e.g. only a tree's trunk, not its canopy).
+        getCollisionMap() {
+            return this.getAscii();
+        }
+    }
+
+
+    // ==================================================
     // Example Game Objects
     // ==================================================
 
-    class Tree {
+    class Tree extends ParallaxObject {
 
-        constructor(x, y) {
-            this.x = x;
-            this.y = y;
-            this.z = 10;
+        constructor(corners) {
+            super(corners, 10);
         }
 
 
@@ -348,8 +420,24 @@
             return `
  /\\
 /##\\
- || 
+ ||
  || `;
+        }
+    }
+
+
+    class Mountain extends ParallaxObject {
+
+        constructor(corners) {
+            super(corners, 1);
+        }
+
+
+        getAscii() {
+            return `
+  /\\
+ /  \\
+/____\\`;
         }
     }
 
@@ -364,10 +452,7 @@
 
 
         getAscii() {
-            return `
- O
-/|\\
-/ \\`;
+            return "A";
         }
 
 
@@ -390,25 +475,9 @@
 
 
         getAscii() {
-            return `
-....................................
-....................................
-....................................
-....................................
-....................................
-....................................
-....................................
-....................................
-....................................
-....................................
-....................................
-....................................
-....................................
-....................................
-....................................
-....................................
-....................................
-....................................`;
+            const row = ".".repeat(41);
+
+            return "\n" + Array(18).fill(row).join("\n");
         }
     }
 
@@ -420,53 +489,224 @@
 
     const renderer = new AsciiRenderer(
         viewport,
-        36,
+        41,
         18
     );
 
 
-    const ground = new Ground();
-    const tree = new Tree(5, 4);
-    const player = new Player(15, 10);
+    // ==================================================
+    // Title screen
+    // ==================================================
+
+    class BlinkingText {
+
+        constructor(x, y, text) {
+            this.x = x;
+            this.y = y;
+            this.z = 1;
+
+            this.text = text;
+            this.visible = true;
+
+            this.transparentChar = " ";
+        }
 
 
-    // The actual game objects are registered.
-    renderer.add(ground);
-    renderer.add(tree);
-    renderer.add(player);
+        getAscii() {
+            return this.visible ? this.text : "";
+        }
+    }
 
+
+    const splash = new SplashScreen();
+    splash.x = 0;
+    splash.y = 4;
+
+    const pressAnyKey = new BlinkingText(14, 15, "Press any key");
+
+
+    renderer.add(splash);
+    renderer.add(pressAnyKey);
 
     renderer.render();
 
 
+    const blinkTimer = setInterval(() => {
+        pressAnyKey.visible = !pressAnyKey.visible;
+        renderer.render();
+    }, 500);
+
+
     // ==================================================
-    // Example: move the actual game object
+    // Game objects
     // ==================================================
 
+    const ground = new Ground();
+    const player = new Player(15, 10);
+
+    const tree = new Tree({
+        topLeft: { x: 3, y: 3 },
+        topRight: { x: 30, y: 3 },
+        bottomLeft: { x: 6, y: 5 },
+        bottomRight: { x: 33, y: 5 }
+    });
+
+    const mountain = new Mountain({
+        topLeft: { x: 12, y: 0 },
+        topRight: { x: 20, y: 0 },
+        bottomLeft: { x: 10, y: 1 },
+        bottomRight: { x: 22, y: 1 }
+    });
+
+    const parallaxObjects = [mountain, tree];
+
+
+    // Player movement is clamped to the viewport, since the
+    // parallax positions are interpolated from where the
+    // player is between its 4 corners.
+    const PLAYER_MIN_X = 0;
+    const PLAYER_MAX_X = renderer.width - 1;
+    const PLAYER_MIN_Y = 0;
+    const PLAYER_MAX_Y = renderer.height - 1;
+
+
+    function clamp(value, min, max) {
+        return Math.max(min, Math.min(max, value));
+    }
+
+
+    // Normalized (0..1) position of a player coordinate between
+    // its min/max bounds - what the parallax interpolation and
+    // the collision prediction below are both driven by.
+    function parallaxCoordsFor(x, y) {
+        return {
+            t: (x - PLAYER_MIN_X) / (PLAYER_MAX_X - PLAYER_MIN_X),
+            u: (y - PLAYER_MIN_Y) / (PLAYER_MAX_Y - PLAYER_MIN_Y)
+        };
+    }
+
+
+    function updateParallax() {
+
+        const { t, u } = parallaxCoordsFor(player.x, player.y);
+
+        for (const object of parallaxObjects) {
+            object.updatePosition(t, u);
+        }
+    }
+
+
+    // Wraps a game object as a plain {x, y, getAscii, ...} probe
+    // pinned to a specific position, so renderer.objectsCollide()
+    // can be reused to test a *hypothetical* position without
+    // actually moving the real object.
+    function makeCollisionProbe(source, x, y) {
+
+        const probe = {
+            x,
+            y,
+            transparentChar: source.transparentChar,
+            getAscii: () => source.getAscii()
+        };
+
+        if (typeof source.getCollisionMap === "function") {
+            probe.getCollisionMap = () => source.getCollisionMap();
+        }
+
+        return probe;
+    }
+
+
+    // Would the player collide with any environment part if it
+    // stood at (px, py)? Each part's own position is predicted
+    // for that same candidate spot, since the environment shifts
+    // with the player (parallax).
+    function wouldCollideAt(px, py) {
+
+        const { t, u } = parallaxCoordsFor(px, py);
+
+        const playerProbe = makeCollisionProbe(player, px, py);
+
+        for (const object of parallaxObjects) {
+
+            const { x, y } = object.interpolatePosition(t, u);
+
+            const objectProbe = makeCollisionProbe(object, x, y);
+
+            if (renderer.objectsCollide(playerProbe, objectProbe)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+
+    function startGame() {
+
+        clearInterval(blinkTimer);
+
+        renderer.remove(splash);
+        renderer.remove(pressAnyKey);
+
+        renderer.add(ground);
+        renderer.add(mountain);
+        renderer.add(tree);
+        renderer.add(player);
+
+        updateParallax();
+        renderer.render();
+    }
+
+
+    // ==================================================
+    // Input: title screen -> game, then move the player
+    // ==================================================
+
+    let gameStarted = false;
+
     document.addEventListener("keydown", event => {
+
+        if (!gameStarted) {
+            gameStarted = true;
+            startGame();
+            return;
+        }
+
+        let dx = 0;
+        let dy = 0;
 
         switch (event.key) {
 
             case "ArrowUp":
-                player.move(0, -1);
+                dy = -1;
                 break;
 
             case "ArrowDown":
-                player.move(0, 1);
+                dy = 1;
                 break;
 
             case "ArrowLeft":
-                player.move(-1, 0);
+                dx = -1;
                 break;
 
             case "ArrowRight":
-                player.move(1, 0);
+                dx = 1;
                 break;
 
             default:
                 return;
         }
 
+        const targetX = clamp(player.x + dx, PLAYER_MIN_X, PLAYER_MAX_X);
+        const targetY = clamp(player.y + dy, PLAYER_MIN_Y, PLAYER_MAX_Y);
+
+        if (!wouldCollideAt(targetX, targetY)) {
+            player.x = targetX;
+            player.y = targetY;
+        }
+
+        updateParallax();
         renderer.render();
     });
 
