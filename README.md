@@ -1,23 +1,65 @@
 # Legend of A
 
-A single-file ASCII-art game. Everything runs client-side in
-[Legend_of_a.html](Legend_of_a.html); open it directly in a browser
-(no build step, no server needed).
+A client-side ASCII-art game, plain classic `<script src>` files with
+no build step, bundler, or server — open [Legend_of_a.html](Legend_of_a.html)
+directly in a browser and it works. That constraint (double-click and
+go) is also why this **isn't** ES modules: module scripts are blocked
+by CORS when loaded from `file://`, so everything here relies on
+classic scripts sharing one global scope instead, loaded in a specific
+order (see "Load order" below).
 
 ## Files
 
+One file per class, named to match, in the style already established
+by `SplashScreen.js`/`SpeechBubble.js` before this split:
+
 | File | Role |
 |---|---|
-| [Legend_of_a.html](Legend_of_a.html) | Renderer, game objects, game loop — everything runs from here |
-| [SplashScreen.js](SplashScreen.js) | Title-screen logo, loaded via `<script src>` |
-| [SpeechBubble.js](SpeechBubble.js) | Speech bubble renderable — **written but not yet wired in** (no `<script src>`, never instantiated) |
+| [Legend_of_a.html](Legend_of_a.html) | Page shell: CSS, the `<pre id="viewport">` + theme button markup, and the `<script src>` list in load order. No game logic of its own. |
+| [AsciiRenderer.js](AsciiRenderer.js) | The renderer: object list, draw loop, collision primitives (`objectsCollide`, `detectCollisions`). |
+| [ParallaxObject.js](ParallaxObject.js) | Base class for scenery that shifts with the player — see "Parallax scenery" below. |
+| [Tree.js](Tree.js), [Mountain.js](Mountain.js) | Scenery pieces, both `extends ParallaxObject`. |
+| [Player.js](Player.js) | Player state: position, facing, push (knockback) fields. |
+| [Sword.js](Sword.js), [Shield.js](Shield.js) | Combat visuals, both take a `player` reference in their constructor. |
+| [Ground.js](Ground.js) | Background floor plane. |
+| [Enemy.js](Enemy.js) | Patrolling enemy. |
+| [BlinkingText.js](BlinkingText.js) | The "Press any key" title-screen prompt. |
+| [SplashScreen.js](SplashScreen.js) | Title-screen logo. |
+| [theme.js](theme.js) | Light/dark mode toggle — entirely independent of the game, see "Theme toggle" below. |
+| [game.js](game.js) | Everything that isn't a class: renderer setup, object instantiation, `startGame()`, input handling, the push/combat/parallax orchestration functions. Loaded last, after every class. |
+| [SpeechBubble.js](SpeechBubble.js) | Speech bubble renderable — **written but not yet wired in** (no `<script src>` in the HTML, never instantiated) |
 | [logo.txt](logo.txt) | Scratch notes / ASCII sketches (player facing variants, color list). Not read by any code — a reference doodle pad, not an asset |
+
+## Load order
+
+Classic scripts share one global scope, so there's no `import`/
+`export` making dependencies explicit — order in `Legend_of_a.html`'s
+`<script src>` list is what makes this work, and getting it wrong
+fails at the first `new` call, not at parse time:
+
+1. `theme.js` first — independent of everything else, needs only the
+   button element (already in the HTML above it).
+2. `AsciiRenderer.js`, then `ParallaxObject.js`, then `Tree.js`/
+   `Mountain.js` — in that order specifically, since `class Tree
+   extends ParallaxObject` needs `ParallaxObject` to already exist.
+3. `Player.js`, `Sword.js`, `Shield.js`, `Ground.js`, `Enemy.js`,
+   `BlinkingText.js`, `SplashScreen.js` — no `extends` between them or
+   anything else, so their relative order doesn't matter; they just
+   all need to load before `game.js`.
+4. `game.js` last, always — it's the only file whose top-level code
+   actually runs immediately (instantiating `renderer`, `player`,
+   `tree`, etc. and registering the `keydown`/`keyup` listeners), and
+   it references every class above by name.
+
+Adding a new class file just means: pick a name matching the class,
+add one `<script src>` line before `game.js` (before `Tree.js`/
+`Mountain.js` too, only if the new class extends `ParallaxObject`).
 
 ## Theme toggle
 
-The `#theme-toggle` button (top-right, fixed position) and its small,
-standalone `<script>` block are entirely separate from the game —
-they just flip a `light-mode` class on `<html>` via
+The `#theme-toggle` button (top-right, fixed position) and
+[theme.js](theme.js) are entirely separate from the game — they just
+flip a `light-mode` class on `<html>` via
 `classList.toggle`, and CSS variables (`--bg`, `--fg`,
 `--viewport-bg`, `--viewport-fg`, defined on `:root` / `:root.light-mode`
 in `<style>`) do the rest. No game object, renderer state, or
@@ -26,8 +68,9 @@ dark mode.
 
 ## Rendering model
 
-`AsciiRenderer` (in `Legend_of_a.html`) owns a `width x height` character
-grid and a flat list of "game objects". Every frame it:
+`AsciiRenderer` (in [AsciiRenderer.js](AsciiRenderer.js)) owns a
+`width x height` character grid and a flat list of "game objects".
+Every frame it:
 
 1. Clears a blank buffer.
 2. Sorts objects by `z` ascending (low z drawn first, so higher z
@@ -71,8 +114,9 @@ Two phases, controlled by a single `gameStarted` flag and one
    `setInterval`) and re-rendered each toggle.
 2. **Playing** — the first `keydown` calls `startGame()`, which stops
    the blink timer, removes the two title-screen objects, adds
-   `ground`, `mountain`, `tree`, `player`, and does one parallax
-   update + render. Every keydown *after* that runs the arrow-key
+   `ground`, `mountain`, `tree`, `enemy`, `player`, starts the enemy's
+   patrol timer, and does one parallax update + render. Every keydown
+   *after* that runs the arrow-key
    switch, clamps the player into the viewport, recomputes parallax,
    and re-renders.
 
@@ -87,7 +131,7 @@ top of everything). `move(dx, dy)` (adds to `x`/`y`) exists as a plain
 primitive but isn't called by the input handler directly anymore — see
 "Movement collision" below for why. Clamping bounds
 (`PLAYER_MIN_X/MAX_X/MIN_Y/MAX_Y`, currently `0..width-1` / `0..height-1`)
-live in the game section, not on `Player`, since they're really
+live in [game.js](game.js), not on `Player`, since they're really
 viewport bounds.
 
 `player.facing` is `"left"` or `"right"` (default `"right"`), set only
@@ -247,7 +291,7 @@ new SomeLayer({
   (`Tree`, `Mountain`) supply their own art, exactly like any other
   game object.
 
-**Driving it:** `updateParallax()` (in the game section) computes
+**Driving it:** `updateParallax()` (in [game.js](game.js)) computes
 `t = (player.x - MIN_X) / (MAX_X - MIN_X)` and the equivalent `u` for
 y, then calls `object.updatePosition(t, u)` for every entry in the
 `parallaxObjects` array. It's called once in `startGame()` and once
@@ -290,7 +334,7 @@ the player's candidate position, not where it currently is — otherwise
 by the time you've moved next to a tree, the tree has already shifted
 out from under you.
 
-The `keydown` handler in the game section does this in order:
+The `keydown` handler in [game.js](game.js) does this in order:
 
 1. Compute `dx`/`dy` from the arrow key, then `targetX`/`targetY` =
    the player's position after that step, clamped to the viewport.
