@@ -1,0 +1,17 @@
+Because I wanted a combat system like follows: the enemy and the character are charging on 
+each other. At the collision the reaction depends on the status of them: If 
+the character has the shield activated, the enemy bounces off, if both have 
+their weapons drawn, they exchange speeds, if the character is the only one with a 
+weapon drawn, the enemy bounces off with the sum of the speed. When the enemy hits 
+the environment or the border, it dies. To recover from the push, the player must 
+type the direction key to lose speed. My big problem with that design is that it 
+depends on a speed and acceleration system rather than the current discrete steps.
+Any ideas?
+
+[Ans]
+A physics-style velocity/acceleration system is more machinery than this actually needs — you can get bounce, speed-exchange, and "sum of speeds" entirely with integer speed as "cells moved per tick", still driven by one shared discrete tick (replacing the separate blinkTimer/enemy-interval pattern with a single central loop both entities move on). Each entity gets a speed (integer, can be 0), and collision reactions just set/swap/add that integer rather than touching position directly — a shield bounce sets enemy speed = -playerApproachSpeed, a weapon clash swaps player.speed/enemy.speed, a one-sided hit sets enemy.speed = -(playerSpeed + enemySpeed). "Recovering from a push" becomes: while |speed| > 0 and no direction key is pressed (or the wrong one), decay it toward 0 each tick (e.g. -1 per tick or per press) instead of needing real deceleration math.
+
+The main tradeoff: at higher magnitudes an entity can now cross several cells in one tick, so collision checks need to be swept along the path (check every intermediate cell) rather than just the endpoint, or you'll get tunneling through the tree/border at speed 3+. That's a real piece of new code, but it's much smaller than introducing floats/acceleration, and it stays inside the grid-of-integers model the rest of the game already uses.
+
+Want me to sketch this out as an actual plan (shared tick, speed field, collision-reaction table, sweep-check), or talk through the alternative (continuous float position/velocity) a bit more first?
+

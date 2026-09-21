@@ -141,19 +141,73 @@ a keypress causing it, so it's also the first evidence that
 `renderer.render()` is cheap enough to call from multiple independent
 timers without coordination.
 
+The enemy isn't in `parallaxObjects` (it has no corners, its position
+isn't a function of the player) and isn't checked in `wouldCollideAt`
+— walking into it never blocks the player's movement. What it *does*
+trigger on contact is the push, below.
+
 Not done yet, deliberately out of scope for now:
 
-- The enemy isn't in `parallaxObjects` (it has no corners, its
-  position isn't a function of the player) and isn't checked in
-  `wouldCollideAt` — walking into it doesn't block the player, and it
-  doesn't react to the player at all yet.
 - No interaction with `Sword`/`Shield` — nothing currently checks
-  whether a swing overlaps the enemy, or blocks damage while `Shield`
-  is up. `renderer.getCollisionShape()`'s default (fall back to
-  `getAscii()`) already works for `Enemy` with no changes needed if
-  `objectsCollide`/`detectCollisions` gets wired up for combat later.
+  whether a swing overlaps the enemy, or changes the collision outcome
+  while `Shield` is up (see "Push" below for the one reaction that
+  does exist). `renderer.getCollisionShape()`'s default (fall back to
+  `getAscii()`) already works for `Enemy` with no changes needed once
+  that's wired up.
+- The enemy never dies, reacts, or bounces off anything itself — it
+  keeps patrolling through a push exactly as if nothing happened.
 - One enemy, one hardcoded patrol row — no patrol-path data structure,
   no spawning/despawning, no chase/aggro behavior.
+
+## Push (knockback)
+
+The first (and so far only) reaction to a player/enemy collision:
+a bare-handed bump — no shield, no sword — knocks the player back.
+This is a deliberately scaled-down piece of a larger planned combat
+system (shield bounces the enemy, crossed swords swap speeds, a
+one-sided swing sends the enemy flying with the combined speed, and
+the enemy dies hitting the environment/border) — none of that is
+implemented, just this one baseline case, on the reasoning that a
+"speed" concept is only worth building once and should stay as simple
+integers rather than floats/acceleration.
+
+- `player.pushSpeed` (cells moved per tick, `0` = not pushed) and
+  `player.pushDirection` (`-1`/`1`) live on `Player`.
+- `checkEnemyEncounter()` — called right after the player's own move
+  commits in the `keydown` handler, and right after `enemy.step()` in
+  its patrol interval — is the only trigger point. It compares
+  `player.x` and `enemy.x` to push away from wherever the enemy
+  currently is, and only fires when `pushSpeed` is already `0`, so
+  standing inside the enemy for several ticks doesn't keep refreshing
+  the push to full speed and trap the player.
+- A dedicated `setInterval` (`PUSH_STEP_INTERVAL`, 200ms) is the only
+  thing that actually moves a pushed player: while `pushSpeed > 0`, it
+  adds `pushDirection * pushSpeed` to `player.x` each tick (clamped to
+  the viewport, same as normal movement) and re-renders. Speed itself
+  never decays here — a full-speed push would drift forever if ignored
+  (capped only by the viewport edge).
+- The only way `pushSpeed` goes down is the player pressing an arrow
+  key while it's `> 0`: the `keydown` handler intercepts this *before*
+  the normal movement code runs, subtracts 1, and returns — no
+  movement happens on that keypress, and it doesn't matter which of
+  the 4 arrow keys was pressed. Once `pushSpeed` hits 0, the very next
+  arrow key press moves the player normally again.
+
+Known gaps / deliberate simplifications:
+
+- Push movement isn't checked against `parallaxObjects` — a pushed
+  player can be shoved straight through the tree/mountain's collision
+  map without stopping. Fine for now since pushes are short and rare;
+  would need the same kind of multi-cell sweep check `wouldCollideAt`
+  doesn't currently do either.
+- Any arrow key decrements the push, not specifically the one pointing
+  back at the enemy — simplest interpretation of "press the direction
+  key to recover," easy to change to a directional check in
+  `checkEnemyEncounter`'s counterpart if that turns out to feel wrong.
+- `PUSH_INITIAL_SPEED` (3) is a flat constant — the planned "sum of
+  speeds" and "swap speeds" reactions would replace `applyPush`'s
+  single call site with a small table keyed by shield/sword state on
+  both sides, feeding a computed speed in instead of the constant.
 
 ## Parallax scenery
 

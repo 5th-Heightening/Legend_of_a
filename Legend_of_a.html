@@ -501,6 +501,12 @@
             // Last horizontal direction faced, kept even while
             // moving vertically or standing still.
             this.facing = "right";
+
+            // Knockback: cells moved per push tick, and which way.
+            // 0 means not currently being pushed. See the "Push"
+            // section in the game code for how this is driven.
+            this.pushSpeed = 0;
+            this.pushDirection = 0;
         }
 
 
@@ -805,6 +811,7 @@
 
         setInterval(() => {
             enemy.step();
+            checkEnemyEncounter();
             renderer.render();
         }, ENEMY_STEP_INTERVAL);
     }
@@ -870,6 +877,58 @@
 
 
     // ==================================================
+    // Push: knockback from running into the enemy
+    //
+    // A push has a speed (cells moved per tick) and a direction,
+    // away from the enemy. It doesn't decay on its own - the only
+    // way it goes down is the player pressing an arrow key, which
+    // costs 1 speed and no movement. Once speed reaches 0, normal
+    // movement resumes.
+    // ==================================================
+
+    const PUSH_INITIAL_SPEED = 3;
+    const PUSH_STEP_INTERVAL = 200;
+
+    function applyPush(direction) {
+        player.pushDirection = direction;
+        player.pushSpeed = PUSH_INITIAL_SPEED;
+    }
+
+
+    // Bare-handed collision with the enemy knocks the player back.
+    // Only fires when the player isn't already reeling from one -
+    // otherwise every tick of overlap would refresh it to full
+    // speed and the player would never recover.
+    function checkEnemyEncounter() {
+
+        if (player.pushSpeed > 0) {
+            return;
+        }
+
+        if (renderer.objectsCollide(player, enemy)) {
+            applyPush(player.x <= enemy.x ? -1 : 1);
+        }
+    }
+
+
+    setInterval(() => {
+
+        if (player.pushSpeed <= 0) {
+            return;
+        }
+
+        player.x = clamp(
+            player.x + player.pushDirection * player.pushSpeed,
+            PLAYER_MIN_X,
+            PLAYER_MAX_X
+        );
+
+        updateParallax();
+        renderer.render();
+    }, PUSH_STEP_INTERVAL);
+
+
+    // ==================================================
     // Input: title screen -> game, then move the player
     // ==================================================
 
@@ -928,6 +987,13 @@
                 return;
         }
 
+        // While reeling from a push, arrow keys don't move the
+        // player - they only fight the knockback, 1 speed at a time.
+        if (player.pushSpeed > 0) {
+            player.pushSpeed -= 1;
+            return;
+        }
+
         const targetX = clamp(player.x + dx, PLAYER_MIN_X, PLAYER_MAX_X);
         const targetY = clamp(player.y + dy, PLAYER_MIN_Y, PLAYER_MAX_Y);
 
@@ -935,6 +1001,8 @@
             player.x = targetX;
             player.y = targetY;
         }
+
+        checkEnemyEncounter();
 
         updateParallax();
         renderer.render();
