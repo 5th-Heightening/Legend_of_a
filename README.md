@@ -205,53 +205,70 @@ Not done yet, deliberately out of scope for now:
 
 ## Push (knockback)
 
-The first (and so far only) reaction to a player/enemy collision:
-a bare-handed bump — no shield, no sword — knocks the player back.
-This is a deliberately scaled-down piece of a larger planned combat
-system (shield bounces the enemy, crossed swords swap speeds, a
-one-sided swing sends the enemy flying with the combined speed, and
-the enemy dies hitting the environment/border) — none of that is
-implemented, just this one baseline case, on the reasoning that a
-"speed" concept is only worth building once and should stay as simple
-integers rather than floats/acceleration.
+The reaction to a player/enemy collision, resolved by the player's
+combat state at the moment of impact:
 
-- `player.pushSpeed` (cells moved per tick, `0` = not pushed) and
-  `player.pushDirection` (`-1`/`1`) live on `Player`.
+| Player state | Player result | Enemy result |
+|---|---|---|
+| bare-handed | knocked back, speed `PUSH_INITIAL_SPEED` (3) | unaffected |
+| sword drawn (exchange) | knocked back, speed = enemy's (`Math.abs(enemy.direction)`, always 1) | knocked back, speed `PUSH_INITIAL_SPEED` (3) |
+| shield up (reflector) | unaffected (speed stays 0) | knocked back, speed `PUSH_INITIAL_SPEED` (3) |
+
+If both `sword` and `shield` are somehow active at once, shield wins —
+blocking takes priority over attacking. There's still no "enemy dies
+hitting the environment/border" (the original design's fourth case) —
+a reflected/exchanged enemy just gets shoved, clamped to the viewport,
+and resumes patrolling once `step()`'s own bounds check pulls it back
+onto its row.
+
+- `player.pushSpeed` (cells moved per tick, `0` = not pushed),
+  `player.pushDirection` (`-1`/`1`), and `player.pushRecoverProgress`
+  (see recovery pacing below) live on `Player`.
 - `checkEnemyEncounter()` — called right after the player's own move
   commits in the `keydown` handler, and right after `enemy.step()` in
-  its patrol interval — is the only trigger point. It compares
-  `player.x` and `enemy.x` to push away from wherever the enemy
-  currently is, and only fires when `pushSpeed` is already `0`, so
-  standing inside the enemy for several ticks doesn't keep refreshing
-  the push to full speed and trap the player.
+  its patrol interval — is the only trigger point, and only fires when
+  `player.pushSpeed` is already `0` (so standing inside the enemy for
+  several ticks doesn't keep re-triggering it). It reads the module-level
+  `sword`/`shield` variables (non-null exactly while a swing/shield is
+  active) to pick which row of the table above applies, and calls
+  `applyPush(direction, speed)` for the player and/or `pushEnemyBack(speed)`
+  for the enemy accordingly.
+- `applyPush(direction, speed)` sets the player's push state (any
+  positive integer speed, not just the constant) and resets
+  `pushRecoverProgress` to 0.
+- `pushEnemyBack(speed)` is a one-shot displacement, not a gradual
+  drift like the player's — the enemy has no input to fight a push
+  with, so there's nothing to recover *from*; it just teleports `speed`
+  cells away from the player immediately, clamped to the viewport.
 - A dedicated `setInterval` (`PUSH_STEP_INTERVAL`, 200ms) is the only
-  thing that actually moves a pushed player: while `pushSpeed > 0`, it
+  thing that actually moves a *pushed player*: while `pushSpeed > 0`, it
   adds `pushDirection * pushSpeed` to `player.x` each tick (clamped to
   the viewport, same as normal movement) and re-renders. Speed itself
-  never decays here — a full-speed push would drift forever if ignored
-  (capped only by the viewport edge).
-- The only way `pushSpeed` goes down is the player pressing an arrow
-  key while it's `> 0`: the `keydown` handler intercepts this *before*
-  the normal movement code runs, subtracts 1, and returns — no
-  movement happens on that keypress, and it doesn't matter which of
-  the 4 arrow keys was pressed. Once `pushSpeed` hits 0, the very next
-  arrow key press moves the player normally again.
+  never decays here — an unrecovered push would drift forever if
+  ignored (capped only by the viewport edge).
+- Recovery pacing: pressing an arrow key while `pushSpeed > 0` adds 1
+  to `pushRecoverProgress` instead of moving the player; once that hits
+  `PUSH_RECOVER_PRESSES_PER_POINT` (3), it resets to 0 and `pushSpeed`
+  drops by 1. So fully recovering costs `pushSpeed * PUSH_RECOVER_PRESSES_PER_POINT`
+  presses in total — 9 from a bare-handed hit, 3 from a sword exchange's
+  small nudge. Raise `PUSH_RECOVER_PRESSES_PER_POINT` to make recovery
+  feel slower still; it doesn't matter which of the 4 arrow keys is
+  pressed, only that one is.
 
 Known gaps / deliberate simplifications:
 
 - Push movement isn't checked against `parallaxObjects` — a pushed
-  player can be shoved straight through the tree/mountain's collision
-  map without stopping. Fine for now since pushes are short and rare;
-  would need the same kind of multi-cell sweep check `wouldCollideAt`
-  doesn't currently do either.
-- Any arrow key decrements the push, not specifically the one pointing
-  back at the enemy — simplest interpretation of "press the direction
-  key to recover," easy to change to a directional check in
-  `checkEnemyEncounter`'s counterpart if that turns out to feel wrong.
-- `PUSH_INITIAL_SPEED` (3) is a flat constant — the planned "sum of
-  speeds" and "swap speeds" reactions would replace `applyPush`'s
-  single call site with a small table keyed by shield/sword state on
-  both sides, feeding a computed speed in instead of the constant.
+  player (or a knocked-back enemy) can be shoved straight through the
+  tree/mountain's collision map without stopping. Fine for now since
+  pushes are short and rare; would need the same kind of multi-cell
+  sweep check `wouldCollideAt` doesn't currently do either.
+- Any arrow key decrements the recovery progress, not specifically the
+  one pointing back at the enemy — simplest interpretation of "press
+  the direction key to recover," easy to change to a directional check
+  if that turns out to feel wrong.
+- The enemy never has its own sword/shield — "both sides armed" (the
+  original design's third case, distinct from today's sword exchange)
+  can't occur, since the enemy has no weapon state to be in.
 
 ## Parallax scenery
 

@@ -230,32 +230,76 @@ function hideShield() {
 //
 // A push has a speed (cells moved per tick) and a direction,
 // away from the enemy. It doesn't decay on its own - the only
-// way it goes down is the player pressing an arrow key, which
-// costs 1 speed and no movement. Once speed reaches 0, normal
-// movement resumes.
+// way it goes down is the player pressing an arrow key. Once
+// speed reaches 0, normal movement resumes.
+//
+// Combat resolution, decided by the player's state at the
+// moment of collision:
+// - bare-handed: only the player is knocked back
+// - sword drawn: an exchange - each side is knocked back with
+//   the *other* side's speed (the enemy's is always 1, its
+//   patrol step)
+// - shield up: a reflector - the player takes nothing, the
+//   enemy takes the full knockback instead
+// Shield wins if somehow both are active at once (blocking
+// takes priority over attacking).
 // ==================================================
 
 const PUSH_INITIAL_SPEED = 3;
 const PUSH_STEP_INTERVAL = 200;
 
-function applyPush(direction) {
+// How many recovery keypresses it takes to shave 1 off
+// pushSpeed. Higher = slower to recover from a push.
+const PUSH_RECOVER_PRESSES_PER_POINT = 1;
+
+function applyPush(direction, speed) {
     player.pushDirection = direction;
-    player.pushSpeed = PUSH_INITIAL_SPEED;
+    player.pushSpeed = speed;
+    player.pushRecoverProgress = 0;
 }
 
 
-// Bare-handed collision with the enemy knocks the player back.
-// Only fires when the player isn't already reeling from one -
-// otherwise every tick of overlap would refresh it to full
-// speed and the player would never recover.
+// One-shot knockback for the enemy - unlike the player's push,
+// this isn't a gradual, recoverable drift (the enemy has no
+// input to fight it with), just an immediate displacement.
+// Clamped to the viewport, not the patrol range - if that
+// shoves it outside minX/maxX, step()'s own bounds check pulls
+// it back onto its patrol row within a tick or two.
+function pushEnemyBack(speed) {
+    const direction = enemy.x < player.x ? -1 : 1;
+
+    enemy.x = clamp(
+        enemy.x + direction * speed,
+        PLAYER_MIN_X,
+        PLAYER_MAX_X
+    );
+}
+
+
+// Only fires when the player isn't already reeling from a push -
+// otherwise every tick of overlap would refresh it to full speed
+// and the player would never recover.
 function checkEnemyEncounter() {
 
     if (player.pushSpeed > 0) {
         return;
     }
 
-    if (renderer.objectsCollide(player, enemy)) {
-        applyPush(player.x <= enemy.x ? -1 : 1);
+    if (!renderer.objectsCollide(player, enemy)) {
+        return;
+    }
+
+    const awayFromEnemy = player.x <= enemy.x ? -1 : 1;
+
+    if (shield) {
+        pushEnemyBack(PUSH_INITIAL_SPEED);
+    }
+    else if (sword) {
+        applyPush(awayFromEnemy, Math.abs(enemy.direction));
+        pushEnemyBack(PUSH_INITIAL_SPEED);
+    }
+    else {
+        applyPush(awayFromEnemy, PUSH_INITIAL_SPEED);
     }
 }
 
@@ -337,9 +381,16 @@ document.addEventListener("keydown", event => {
     }
 
     // While reeling from a push, arrow keys don't move the
-    // player - they only fight the knockback, 1 speed at a time.
+    // player - they only fight the knockback, chipping away at
+    // it PUSH_RECOVER_PRESSES_PER_POINT presses per point of speed.
     if (player.pushSpeed > 0) {
-        player.pushSpeed -= 1;
+        player.pushRecoverProgress += 1;
+
+        if (player.pushRecoverProgress >= PUSH_RECOVER_PRESSES_PER_POINT) {
+            player.pushRecoverProgress = 0;
+            player.pushSpeed -= 1;
+        }
+
         return;
     }
 

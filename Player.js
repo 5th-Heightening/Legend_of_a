@@ -14,6 +14,10 @@ class Player {
         // section in the game code for how this is driven.
         this.pushSpeed = 0;
         this.pushDirection = 0;
+
+        // Recovery keypresses accumulated toward shaving 1 off
+        // pushSpeed - see PUSH_RECOVER_PRESSES_PER_POINT in game.js.
+        this.pushRecoverProgress = 0;
     }
 
 
