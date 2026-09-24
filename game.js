@@ -159,7 +159,12 @@ function startGame() {
     renderer.render();
 
     setInterval(() => {
-        enemy.step();
+
+        if (!enemy.alive) {
+            return;
+        }
+
+        enemy.step(player);
         checkEnemyEncounter();
         renderer.render();
     }, ENEMY_STEP_INTERVAL);
@@ -172,26 +177,24 @@ function startGame() {
 
 const SWORD_FRAME_DURATION = 120;
 
-let sword = null;
-
 function swingSword() {
 
     // A swing already in progress isn't interrupted or restarted.
-    if (sword) {
+    if (player.sword) {
         return;
     }
 
-    sword = new Sword(player);
-    renderer.add(sword);
+    player.sword = new Sword(player);
+    renderer.add(player.sword);
     renderer.render();
 
     setTimeout(() => {
-        sword.char = "_";
+        player.sword.frame = "dash";
         renderer.render();
 
         setTimeout(() => {
-            renderer.remove(sword);
-            sword = null;
+            renderer.remove(player.sword);
+            player.sword = null;
             renderer.render();
         }, SWORD_FRAME_DURATION);
 
@@ -199,28 +202,26 @@ function swingSword() {
 }
 
 
-let shield = null;
-
 function showShield() {
 
-    if (shield) {
+    if (player.shield) {
         return;
     }
 
-    shield = new Shield(player);
-    renderer.add(shield);
+    player.shield = new Shield(player);
+    renderer.add(player.shield);
     renderer.render();
 }
 
 
 function hideShield() {
 
-    if (!shield) {
+    if (!player.shield) {
         return;
     }
 
-    renderer.remove(shield);
-    shield = null;
+    renderer.remove(player.shield);
+    player.shield = null;
     renderer.render();
 }
 
@@ -228,10 +229,16 @@ function hideShield() {
 // ==================================================
 // Push: knockback from running into the enemy
 //
-// A push has a speed (cells moved per tick) and a direction,
-// away from the enemy. It doesn't decay on its own - the only
-// way it goes down is the player pressing an arrow key. Once
-// speed reaches 0, normal movement resumes.
+// Both player and enemy carry a Push (see Push.js): a speed
+// (cells per tick, may be fractional - a hidden sub-cell offset
+// accumulates it and only whole cells crossed actually move
+// anyone) and a direction, away from the other side. Neither decays on its own - the player's only goes down
+// by pressing an arrow key (see the keydown handler); the
+// enemy's never recovers at all, since it has no input to fight
+// it with - it either rides the knockback out to a stop against
+// the border/environment (vanishing there, see stepEnemyPush())
+// or, more often, is still mid-push when the next patrol tick
+// would fire and just keeps drifting.
 //
 // Combat resolution, decided by the player's state at the
 // moment of collision:
@@ -248,40 +255,58 @@ function hideShield() {
 const PUSH_INITIAL_SPEED = 3;
 const PUSH_STEP_INTERVAL = 200;
 
-// How many recovery keypresses it takes to shave 1 off
-// pushSpeed. Higher = slower to recover from a push.
+// How many recovery keypresses it takes to shave 1 off the
+// player's push speed. Higher = slower to recover from a push.
 const PUSH_RECOVER_PRESSES_PER_POINT = 1;
 
-function applyPush(direction, speed) {
-    player.pushDirection = direction;
-    player.pushSpeed = speed;
-    player.pushRecoverProgress = 0;
+
+// Removes the enemy for good - called once a push carries it
+// into the border or the environment. Its own push is stopped
+// too, so a stale reference can't keep nudging a dead enemy.
+function vanishEnemy() {
+    enemy.alive = false;
+    enemy.push.stop();
+    renderer.remove(enemy);
 }
 
 
-// One-shot knockback for the enemy - unlike the player's push,
-// this isn't a gradual, recoverable drift (the enemy has no
-// input to fight it with), just an immediate displacement.
-// Clamped to the viewport, not the patrol range - if that
-// shoves it outside minX/maxX, step()'s own bounds check pulls
-// it back onto its patrol row within a tick or two.
-function pushEnemyBack(speed) {
-    const direction = enemy.x < player.x ? -1 : 1;
+// Moves the enemy by `cells` (from enemy.push.step()). Unlike the
+// player, the enemy isn't clamped to the viewport - it can fly
+// straight off the display - but the moment it would leave the
+// display, or its new spot overlaps any scenery, it vanishes
+// instead of landing there.
+function stepEnemyPush(cells) {
 
-    enemy.x = clamp(
-        enemy.x + direction * speed,
-        PLAYER_MIN_X,
-        PLAYER_MAX_X
-    );
+    const nextX = enemy.x + cells;
+
+    if (nextX < 0 || nextX >= renderer.width) {
+        vanishEnemy();
+        return;
+    }
+
+    const enemyProbe = makeCollisionProbe(enemy, nextX, enemy.y);
+
+    for (const object of parallaxObjects) {
+        if (renderer.objectsCollide(enemyProbe, object)) {
+            vanishEnemy();
+            return;
+        }
+    }
+
+    enemy.x = nextX;
 }
 
 
-// Only fires when the player isn't already reeling from a push -
-// otherwise every tick of overlap would refresh it to full speed
-// and the player would never recover.
+// Only fires when neither side is already mid-push - otherwise
+// every tick of overlap would refresh it to full speed and
+// neither would ever finish recovering/flying apart.
 function checkEnemyEncounter() {
 
-    if (player.pushSpeed > 0) {
+    if (!enemy.alive) {
+        return;
+    }
+
+    if (player.push.active() || enemy.push.active()) {
         return;
     }
 
@@ -290,34 +315,49 @@ function checkEnemyEncounter() {
     }
 
     const awayFromEnemy = player.x <= enemy.x ? -1 : 1;
+    const awayFromPlayer = -awayFromEnemy;
 
-    if (shield) {
-        pushEnemyBack(PUSH_INITIAL_SPEED);
+    if (player.shield) {
+        enemy.push.start(awayFromPlayer, PUSH_INITIAL_SPEED);
     }
-    else if (sword) {
-        applyPush(awayFromEnemy, Math.abs(enemy.direction));
-        pushEnemyBack(PUSH_INITIAL_SPEED);
+    else if (player.sword) {
+        player.push.start(awayFromEnemy, Math.abs(enemy.direction));
+        enemy.push.start(awayFromPlayer, PUSH_INITIAL_SPEED);
     }
     else {
-        applyPush(awayFromEnemy, PUSH_INITIAL_SPEED);
+        player.push.start(awayFromEnemy, PUSH_INITIAL_SPEED);
     }
 }
 
 
 setInterval(() => {
 
-    if (player.pushSpeed <= 0) {
-        return;
+    let moved = false;
+
+    // Push.step() advances the hidden smooth position and says how
+    // many whole cells were crossed - only those move the owner.
+    if (player.push.active()) {
+        const cells = player.push.step();
+
+        if (cells !== 0) {
+            player.x = clamp(player.x + cells, PLAYER_MIN_X, PLAYER_MAX_X);
+            moved = true;
+        }
     }
 
-    player.x = clamp(
-        player.x + player.pushDirection * player.pushSpeed,
-        PLAYER_MIN_X,
-        PLAYER_MAX_X
-    );
+    if (enemy.alive && enemy.push.active()) {
+        const cells = enemy.push.step();
 
-    updateParallax();
-    renderer.render();
+        if (cells !== 0) {
+            stepEnemyPush(cells);
+            moved = true;
+        }
+    }
+
+    if (moved) {
+        updateParallax();
+        renderer.render();
+    }
 }, PUSH_STEP_INTERVAL);
 
 
@@ -383,14 +423,8 @@ document.addEventListener("keydown", event => {
     // While reeling from a push, arrow keys don't move the
     // player - they only fight the knockback, chipping away at
     // it PUSH_RECOVER_PRESSES_PER_POINT presses per point of speed.
-    if (player.pushSpeed > 0) {
-        player.pushRecoverProgress += 1;
-
-        if (player.pushRecoverProgress >= PUSH_RECOVER_PRESSES_PER_POINT) {
-            player.pushRecoverProgress = 0;
-            player.pushSpeed -= 1;
-        }
-
+    if (player.push.active()) {
+        player.push.recoverStep(PUSH_RECOVER_PRESSES_PER_POINT);
         return;
     }
 

@@ -9,15 +9,15 @@ class Player {
         // moving vertically or standing still.
         this.facing = "right";
 
-        // Knockback: cells moved per push tick, and which way.
-        // 0 means not currently being pushed. See the "Push"
-        // section in the game code for how this is driven.
-        this.pushSpeed = 0;
-        this.pushDirection = 0;
+        // Knockback - see Push.js and the "Push" section in
+        // game.js for how this is driven.
+        this.push = new Push();
 
-        // Recovery keypresses accumulated toward shaving 1 off
-        // pushSpeed - see PUSH_RECOVER_PRESSES_PER_POINT in game.js.
-        this.pushRecoverProgress = 0;
+        // Currently-equipped weapons, or null when not out. Set/
+        // cleared by swingSword()/showShield()/hideShield() in
+        // game.js, which also add/remove them from the renderer.
+        this.sword = null;
+        this.shield = null;
     }
 
 
