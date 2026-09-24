@@ -253,6 +253,13 @@ function hideShield() {
 // ==================================================
 
 const PUSH_INITIAL_SPEED = 3;
+
+// Burst spawned where the player and enemy collide, and the
+// (slower) speed of the trace particles a pushed player/enemy
+// leaves, plus the chance (0..1) of a trace particle per cell.
+const COLLISION_PARTICLE_COUNT = 3;
+const TRACE_PARTICLE_SPEED = 1;
+const TRACE_PARTICLE_DENSITY = .5;
 const PUSH_STEP_INTERVAL = 200;
 
 // How many recovery keypresses it takes to shave 1 off the
@@ -297,6 +304,22 @@ function stepEnemyPush(cells) {
 }
 
 
+// Trace left behind by a push: on every cell between fromX
+// (inclusive) and toX (exclusive) - the cells the push just
+// carried its owner out of - spawns one slow particle with
+// probability TRACE_PARTICLE_DENSITY.
+function spawnPushTrail(fromX, toX, y) {
+
+    const step = Math.sign(toX - fromX);
+
+    for (let x = fromX; x !== toX; x += step) {
+        if (Math.random() < TRACE_PARTICLE_DENSITY) {
+            spawnParticles(x, y, 1, TRACE_PARTICLE_SPEED, false);
+        }
+    }
+}
+
+
 // Only fires when neither side is already mid-push - otherwise
 // every tick of overlap would refresh it to full speed and
 // neither would ever finish recovering/flying apart.
@@ -313,6 +336,8 @@ function checkEnemyEncounter() {
     if (!renderer.objectsCollide(player, enemy)) {
         return;
     }
+
+    spawnParticles(player.x, player.y, COLLISION_PARTICLE_COUNT);
 
     const awayFromEnemy = player.x <= enemy.x ? -1 : 1;
     const awayFromPlayer = -awayFromEnemy;
@@ -340,7 +365,9 @@ setInterval(() => {
         const cells = player.push.step();
 
         if (cells !== 0) {
+            const startX = player.x;
             player.x = clamp(player.x + cells, PLAYER_MIN_X, PLAYER_MAX_X);
+            spawnPushTrail(startX, player.x, player.y);
             moved = true;
         }
     }
@@ -349,7 +376,12 @@ setInterval(() => {
         const cells = enemy.push.step();
 
         if (cells !== 0) {
+            const startX = enemy.x;
             stepEnemyPush(cells);
+
+            // A vanished enemy never lands, so x stays put and no
+            // trail is left for that last tick.
+            spawnPushTrail(startX, enemy.x, enemy.y);
             moved = true;
         }
     }
@@ -359,6 +391,66 @@ setInterval(() => {
         renderer.render();
     }
 }, PUSH_STEP_INTERVAL);
+
+
+// ==================================================
+// Particles
+//
+// Every live Particle (see Particle.js) sits in `particles` and
+// in the renderer. One shared loop advances them all by the real
+// time elapsed since the last tick, and drops any that have run
+// out of characters from both lists.
+// ==================================================
+
+const PARTICLE_STEP_INTERVAL = 50;
+const PARTICLE_GRAVITATION = 10;
+const PARTICLE_SPEED = 6;
+
+const particles = [];
+
+
+// Spawns `count` particles at (x, y), each flying off in its own
+// random direction with its own random character sequence.
+function spawnParticles(x, y, count, speed = PARTICLE_SPEED, gravitation = true) {
+
+    for (let i = 0; i < count; i++) {
+        const particle = new Particle(x, y, speed, gravitation);
+
+        particles.push(particle);
+        renderer.add(particle);
+    }
+
+    renderer.render();
+}
+
+
+let lastParticleTick = performance.now();
+
+setInterval(() => {
+
+    const now = performance.now();
+    const dt = now - lastParticleTick;
+    lastParticleTick = now;
+
+    if (particles.length === 0) {
+        return;
+    }
+
+    // Iterate backwards so splicing out dead particles doesn't
+    // skip the next one.
+    for (let i = particles.length - 1; i >= 0; i--) {
+        const particle = particles[i];
+
+        particle.update(dt);
+
+        if (!particle.alive) {
+            renderer.remove(particle);
+            particles.splice(i, 1);
+        }
+    }
+
+    renderer.render();
+}, PARTICLE_STEP_INTERVAL);
 
 
 // ==================================================

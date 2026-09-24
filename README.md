@@ -24,6 +24,7 @@ by `SplashScreen.js`/`SpeechBubble.js` before this split:
 | [Ground.js](Ground.js) | Background floor plane. |
 | [Enemy.js](Enemy.js) | Patrolling/combat enemy. |
 | [Push.js](Push.js) | Knockback state (speed, direction, recovery) shared by `Player` and `Enemy`. |
+| [Particle.js](Particle.js) | Short-lived drifting particle that decays through a random character sequence — see "Particles" below. |
 | [BlinkingText.js](BlinkingText.js) | The "Press any key" title-screen prompt. |
 | [SplashScreen.js](SplashScreen.js) | Title-screen logo. |
 | [theme.js](theme.js) | Light/dark mode toggle — entirely independent of the game, see "Theme toggle" below. |
@@ -320,6 +321,35 @@ Known gaps / deliberate simplifications:
 - The enemy never has its own sword/shield — "both sides armed" (the
   original design's third case, distinct from today's sword exchange)
   can't occur, since the enemy has no weapon state to be in.
+
+## Particles
+
+`Particle` ([Particle.js](Particle.js), `z = 18`) picks one of
+`Particle.SEQUENCES` (`"#Oo+-."`, `` "#O*°'´`" ``, `"#;:,."`) at random
+and starts on its first character. Every `Particle.FRAME_DURATION`
+(250ms) it jumps ahead 1 or 2 characters (50/50); running past the
+end sets `alive = false`. Meanwhile it moves at a fixed speed (cells
+per second) in a random direction chosen at creation. Position is
+kept smooth in `posX`/`posY`; `x`/`y` are rounding getters, since the
+renderer only accepts whole cells.
+
+In [game.js](game.js), live particles are kept in the `particles`
+array (and the renderer). `spawnParticles(x, y, count, speed?)`
+creates a burst; one `setInterval` (`PARTICLE_STEP_INTERVAL`, 50ms)
+calls `update(dt)` with the real elapsed time on each, and removes
+dead ones from both the array and the renderer.
+
+Currently spawned in two places:
+
+- `checkEnemyEncounter()` — a burst of `COLLISION_PARTICLE_COUNT` (3)
+  at the player's position whenever a player/enemy collision actually
+  triggers a push reaction.
+- The push loop — while the player or the enemy is being pushed,
+  `spawnPushTrail(fromX, toX, y)` rolls once per cell the push carries
+  it out of and, with probability `TRACE_PARTICLE_DENSITY` (0.5),
+  spawns one particle at `TRACE_PARTICLE_SPEED` (1) there, leaving a
+  trace behind. An enemy that vanishes on a tick leaves no trail for
+  that tick, since it never lands.
 
 ## Parallax scenery
 
