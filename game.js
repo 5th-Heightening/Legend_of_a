@@ -164,9 +164,11 @@ function startGame() {
             return;
         }
 
+        const enemyFromX = enemy.x;
+
         enemy.step(player);
         updateEnemySword();
-        checkEnemyEncounter();
+        checkEnemyEncounter(player.x, enemyFromX);
         renderer.render();
     }, ENEMY_STEP_INTERVAL);
 }
@@ -336,6 +338,12 @@ const PUSH_STEP_INTERVAL = 200;
 // player's push speed. Higher = slower to recover from a push.
 const PUSH_RECOVER_PRESSES_PER_POINT = 1;
 
+// How much one held-arrow tick (every PLAYER_MOVE_INTERVAL while
+// the key stays down) counts toward recovery, compared to a fresh
+// press (1). Lower = holding recovers slower, so tapping is the
+// way to recover quickly.
+const PUSH_RECOVER_HOLD_WEIGHT = 0.25;
+
 // The enemy's self-recovery from a push: loses
 // ENEMY_PUSH_RECOVER_AMOUNT speed every ENEMY_PUSH_RECOVER_INTERVAL ms.
 const ENEMY_PUSH_RECOVER_INTERVAL = 500;
@@ -399,7 +407,15 @@ function spawnPushTrail(fromX, toX, y) {
 // Only fires when neither side is already mid-push - otherwise
 // every tick of overlap would refresh it to full speed and
 // neither would ever finish recovering/flying apart.
-function checkEnemyEncounter() {
+//
+// playerFromX/enemyFromX are where the two stood *before* the
+// move that may have brought them together - a collision means
+// they share a cell, so only their previous positions tell which
+// side each came from. Everything directional follows from that
+// one `enemySide`: who is pushed which way, and whether each
+// side's weapon actually faces the other (a shield on the back
+// doesn't block, a sword pointing away doesn't hit).
+function checkEnemyEncounter(playerFromX = player.x, enemyFromX = enemy.x) {
 
     if (!enemy.alive) {
         return;
@@ -415,20 +431,34 @@ function checkEnemyEncounter() {
 
     spawnParticles(player.x, player.y, COLLISION_PARTICLE_COUNT);
 
-    const awayFromEnemy = player.x <= enemy.x ? -1 : 1;
-    const awayFromPlayer = -awayFromEnemy;
+    const playerFacing = player.facing === "left" ? -1 : 1;
 
-    if (player.shield) {
+    // Which side of the player the enemy came from (-1 left,
+    // 1 right). Same previous column (the player stepped into the
+    // enemy's row from above/below) - the enemy counts as in front.
+    const enemySide = Math.sign(enemyFromX - playerFromX) || playerFacing;
+
+    const awayFromEnemy = -enemySide;
+    const awayFromPlayer = enemySide;
+
+    const playerFacesEnemy = playerFacing === enemySide;
+    const enemyFacesPlayer = enemy.direction === -enemySide;
+
+    const shield = player.shield && playerFacesEnemy;
+    const playerSword = player.sword && playerFacesEnemy;
+    const enemySword = enemy.sword && enemyFacesPlayer;
+
+    if (shield) {
         enemy.push.start(awayFromPlayer, PUSH_INITIAL_SPEED);
     }
-    else if (player.sword && enemy.sword) {
+    else if (playerSword && enemySword) {
         player.push.start(awayFromEnemy, enemy.speed);
         enemy.push.start(awayFromPlayer, PLAYER_SWORD_SPEED);
     }
-    else if (player.sword) {
+    else if (playerSword) {
         enemy.push.start(awayFromPlayer, PLAYER_SWORD_SPEED + enemy.speed);
     }
-    else if (enemy.sword) {
+    else if (enemySword) {
         player.push.start(awayFromEnemy, PUSH_INITIAL_SPEED + enemy.speed);
     }
     else {
@@ -643,53 +673,9 @@ document.addEventListener("keydown", event => {
         return;
     }
 
-    let dx = 0;
-    let dy = 0;
-
-    switch (event.key) {
-
-        case "ArrowUp":
-            dy = -1;
-            break;
-
-        case "ArrowDown":
-            dy = 1;
-            break;
-
-        case "ArrowLeft":
-            dx = -1;
-            player.facing = "left";
-            break;
-
-        case "ArrowRight":
-            dx = 1;
-            player.facing = "right";
-            break;
-
-        default:
-            return;
+    if (event.key in ARROW_DIRECTIONS) {
+        pressArrow(event.key, event.repeat);
     }
-
-    // While reeling from a push, arrow keys don't move the
-    // player - they only fight the knockback, chipping away at
-    // it PUSH_RECOVER_PRESSES_PER_POINT presses per point of speed.
-    if (player.push.active()) {
-        player.push.recoverStep(PUSH_RECOVER_PRESSES_PER_POINT);
-        return;
-    }
-
-    const targetX = clamp(player.x + dx, PLAYER_MIN_X, PLAYER_MAX_X);
-    const targetY = clamp(player.y + dy, PLAYER_MIN_Y, PLAYER_MAX_Y);
-
-    if (!wouldCollideAt(targetX, targetY)) {
-        player.x = targetX;
-        player.y = targetY;
-    }
-
-    checkEnemyEncounter();
-
-    updateParallax();
-    renderer.render();
 });
 
 
@@ -704,4 +690,124 @@ document.addEventListener("keyup", event => {
     if (key === "d") {
         stopSquiggle();
     }
+
+    if (event.key in ARROW_DIRECTIONS) {
+        releaseArrow(event.key);
+    }
 });
+
+
+// Focus leaving the page means no keyup will arrive for keys
+// still held - drop them, so the player doesn't keep walking.
+window.addEventListener("blur", releaseAllArrows);
+
+
+// ==================================================
+// Player movement (arrow keys, held)
+//
+// The OS key auto-repeat (one step, a pause, then fast repeats)
+// is ignored. Instead, the first press of an arrow moves one
+// step right away, and a timer keeps stepping every
+// PLAYER_MOVE_INTERVAL ms for as long as it's held. With several
+// arrows held, the most recently pressed one wins; releasing it
+// falls back to the next one still held.
+// ==================================================
+
+const PLAYER_MOVE_INTERVAL = 120;
+
+const ARROW_DIRECTIONS = {
+    ArrowUp: { dx: 0, dy: -1 },
+    ArrowDown: { dx: 0, dy: 1 },
+    ArrowLeft: { dx: -1, dy: 0 },
+    ArrowRight: { dx: 1, dy: 0 }
+};
+
+// Arrow keys currently held, in press order - the last one is
+// the direction being walked.
+const heldArrows = [];
+
+let moveTimer = null;
+
+
+function pressArrow(key, isRepeat) {
+
+    if (isRepeat || heldArrows.includes(key)) {
+        return;
+    }
+
+    heldArrows.push(key);
+
+    // Restart the timer so the new direction gets a full interval
+    // before its second step, same as a fresh press.
+    clearInterval(moveTimer);
+    stepPlayer(true);
+    moveTimer = setInterval(() => stepPlayer(false), PLAYER_MOVE_INTERVAL);
+}
+
+
+function releaseArrow(key) {
+
+    const index = heldArrows.indexOf(key);
+
+    if (index !== -1) {
+        heldArrows.splice(index, 1);
+    }
+
+    if (heldArrows.length === 0) {
+        clearInterval(moveTimer);
+        moveTimer = null;
+    }
+}
+
+
+function releaseAllArrows() {
+    heldArrows.length = 0;
+    clearInterval(moveTimer);
+    moveTimer = null;
+}
+
+
+// One movement step in the direction of the most recently
+// pressed, still-held arrow. isFreshPress is true for the step
+// right on keydown, false for the held-key timer's steps.
+function stepPlayer(isFreshPress) {
+
+    const key = heldArrows[heldArrows.length - 1];
+
+    if (!key) {
+        return;
+    }
+
+    const { dx, dy } = ARROW_DIRECTIONS[key];
+
+    if (dx !== 0) {
+        player.facing = dx < 0 ? "left" : "right";
+    }
+
+    // While reeling from a push, arrow keys don't move the
+    // player - they only fight the knockback, chipping away at
+    // it PUSH_RECOVER_PRESSES_PER_POINT presses per point of speed.
+    // Holding an arrow only counts PUSH_RECOVER_HOLD_WEIGHT of a
+    // press per tick, so tapping recovers much faster.
+    if (player.push.active()) {
+        const weight = isFreshPress ? 1 : PUSH_RECOVER_HOLD_WEIGHT;
+        player.push.recoverStep(PUSH_RECOVER_PRESSES_PER_POINT, weight);
+        renderer.render();
+        return;
+    }
+
+    const playerFromX = player.x;
+
+    const targetX = clamp(player.x + dx, PLAYER_MIN_X, PLAYER_MAX_X);
+    const targetY = clamp(player.y + dy, PLAYER_MIN_Y, PLAYER_MAX_Y);
+
+    if (!wouldCollideAt(targetX, targetY)) {
+        player.x = targetX;
+        player.y = targetY;
+    }
+
+    checkEnemyEncounter(playerFromX, enemy.x);
+
+    updateParallax();
+    renderer.render();
+}

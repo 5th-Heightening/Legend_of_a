@@ -65,8 +65,10 @@ class Push {
     // One recovery keypress. Once pressesPerPoint of these have
     // accumulated, shaves 1 off speed and resets the counter -
     // stop()s outright once speed bottoms out.
-    recoverStep(pressesPerPoint) {
-        this.recoverProgress += 1;
+    // `weight` is how much this press counts - 1 for a real press,
+    // less for weaker input (e.g. a held key's repeat tick).
+    recoverStep(pressesPerPoint, weight = 1) {
+        this.recoverProgress += weight;
 
         if (this.recoverProgress >= pressesPerPoint) {
             this.recoverProgress = 0;

@@ -140,8 +140,19 @@ primitive but isn't called by the input handler directly anymore — see
 live in [game.js](game.js), not on `Player`, since they're really
 viewport bounds.
 
+**Held-key movement:** the OS key auto-repeat (one step, a pause,
+then fast repeats) is ignored (`event.repeat`). Instead the arrow
+keys currently held are tracked in `heldArrows` (press order), and
+`pressArrow()` on a fresh press steps once right away and (re)starts
+`moveTimer`, which calls `stepPlayer()` every `PLAYER_MOVE_INTERVAL`
+(120ms) — a constant speed for as long as the key is held. The last
+pressed, still-held arrow is the direction walked; releasing it
+(`releaseArrow()` on `keyup`) falls back to the next one still held,
+and the timer stops once none are. A window `blur` drops all held
+arrows, since no `keyup` would arrive for them.
+
 `player.facing` is `"left"` or `"right"` (default `"right"`), set only
-by `ArrowLeft`/`ArrowRight` in the `keydown` handler — `ArrowUp`/`Down`
+by `ArrowLeft`/`ArrowRight` steps in `stepPlayer()` — `ArrowUp`/`Down`
 leave it untouched, and it updates even if the move itself is blocked
 by a collision, since it's about which way the player is turned, not
 whether they actually moved.
@@ -290,6 +301,22 @@ is `PLAYER_SWORD_SPEED` (3), the force of its swing:
 If both `sword` and `shield` are somehow active at once, shield wins —
 blocking takes priority over attacking.
 
+**Directions:** a collision means both share one cell, so their
+current positions can't tell who came from where. The callers pass
+`checkEnemyEncounter(playerFromX, enemyFromX)` the positions from
+*before* the move that brought them together (the player's step in
+`stepPlayer()`, or the enemy's `step()` in its interval). From those,
+`enemySide` (-1/1, which side of the player the enemy came from —
+falling back to `player.facing` if both were in the same column, i.e.
+the player stepped in vertically) decides everything directional:
+
+- the player is pushed away from `enemySide`, the enemy toward it
+  (i.e. away from the player);
+- the player's shield/sword only count if `player.facing` points
+  toward `enemySide`, and the enemy's sword only counts if
+  `enemy.direction` points toward the player — a weapon facing away
+  is treated as not drawn.
+
 - `checkEnemyEncounter()` — called right after the player's own move
   commits in the `keydown` handler, and right after `enemy.step()` in
   its patrol interval — is the only trigger point, and only fires when
@@ -323,9 +350,13 @@ blocking takes priority over attacking.
   each push-loop tick calls `enemy.push.recoverOverTime(PUSH_STEP_INTERVAL,
   ENEMY_PUSH_RECOVER_INTERVAL, ENEMY_PUSH_RECOVER_AMOUNT)` — it loses
   1 speed every 500ms, with leftover time carried over between ticks.
-- Player recovery pacing: pressing an arrow key while `player.push.active()` calls
-  `player.push.recoverStep(PUSH_RECOVER_PRESSES_PER_POINT)`, which
-  adds 1 to `recoverProgress` and, once that hits
+- Player recovery pacing: each `stepPlayer()` step (a fresh arrow
+  press, or every `PLAYER_MOVE_INTERVAL` while one is held) while
+  `player.push.active()` calls
+  `player.push.recoverStep(PUSH_RECOVER_PRESSES_PER_POINT, weight)`,
+  which adds `weight` to `recoverProgress` — 1 for a fresh press,
+  `PUSH_RECOVER_HOLD_WEIGHT` (0.25) for a held-key tick, so tapping
+  recovers much faster than holding — and, once that hits
   `PUSH_RECOVER_PRESSES_PER_POINT` (1), resets it and drops `speed` by
   1 (auto-`stop()`ing at 0). It doesn't matter which of the 4 arrow
   keys is pressed, only that one is.
