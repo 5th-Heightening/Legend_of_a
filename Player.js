@@ -18,6 +18,10 @@ class Player {
         // game.js, which also add/remove them from the renderer.
         this.sword = null;
         this.shield = null;
+
+        // Decorative letter string while "D" is held, or null - see
+        // startSquiggle()/stopSquiggle() in game.js.
+        this.squiggle = null;
     }
 
 

@@ -23,8 +23,10 @@ by `SplashScreen.js`/`SpeechBubble.js` before this split:
 | [Sword.js](Sword.js), [Shield.js](Shield.js) | Combat visuals, both take a `player` reference in their constructor. |
 | [Ground.js](Ground.js) | Background floor plane. |
 | [Enemy.js](Enemy.js) | Patrolling/combat enemy. |
+| [EnemySword.js](EnemySword.js) | The enemy's `-` sword, glued to the enemy — see "Enemy" below. |
 | [Push.js](Push.js) | Knockback state (speed, direction, recovery) shared by `Player` and `Enemy`. |
 | [Particle.js](Particle.js) | Short-lived drifting particle that decays through a random character sequence — see "Particles" below. |
+| [Squiggle.js](Squiggle.js) | Decorative random-letter string grown from the player while `D` is held — see "Squiggle" below. |
 | [BlinkingText.js](BlinkingText.js) | The "Press any key" title-screen prompt. |
 | [SplashScreen.js](SplashScreen.js) | Title-screen logo. |
 | [theme.js](theme.js) | Light/dark mode toggle — entirely independent of the game, see "Theme toggle" below. |
@@ -45,7 +47,7 @@ fails at the first `new` call, not at parse time:
    `Mountain.js` — in that order specifically, since `class Tree
    extends ParallaxObject` needs `ParallaxObject` to already exist.
 3. `Push.js`, `Player.js`, `Sword.js`, `Shield.js`, `Ground.js`,
-   `Enemy.js`, `BlinkingText.js`, `SplashScreen.js` — no `extends`
+   `Enemy.js`, `EnemySword.js`, `Squiggle.js`, `BlinkingText.js`, `SplashScreen.js` — no `extends`
    between them, but `Push.js` has to come before `Player.js`/
    `Enemy.js` since their constructors do `new Push()`. Otherwise
    their relative order doesn't matter; they just all need to load
@@ -200,10 +202,17 @@ multiple independent timers without coordination.
 1. **Mid-push** (`this.push.active()`) — leave `x` alone. A dedicated
    push loop in `game.js` (see "Push" below) is moving it instead.
 2. **Combat mode** (`player.y === this.y`, same row) — patrolling
-   stops. Each tick it turns to face the player (`direction` set
-   toward `player.x`) and takes one step closer, until `x` matches
-   `player.x`, at which point it holds position (colliding there is
-   what feeds `checkEnemyEncounter()`).
+   stops and `approach(player)` runs instead: it turns to face the
+   player and closes in, slowly accelerating. `approachSpeed` (cells
+   per tick, fractional, with a hidden `approachOffset` like `Push`)
+   starts at `Enemy.APPROACH_START_SPEED` (0.5), grows by
+   `Enemy.APPROACH_ACCELERATION` (0.25) per tick, capped at
+   `Enemy.APPROACH_MAX_SPEED` (2). It never moves past `player.x` —
+   it stops right on the player (colliding there is what feeds
+   `checkEnemyEncounter()`). The run-up resets (`resetApproach()`)
+   when it turns around, is pushed, or goes back to patrolling.
+   `enemy.speed` (getter) is `approachSpeed` while approaching, else
+   `Enemy.PATROL_SPEED` (1).
 3. **Patrol** (otherwise) — the original behavior: walk a fixed row
    back and forth between `minX`/`maxX` (`5`/`35` currently),
    reversing `direction` at either end.
@@ -213,6 +222,17 @@ multiple independent timers without coordination.
 environment; `game.js` checks it before stepping, colliding, or
 pushing the enemy any further, so a vanished enemy is inert even
 though the `enemy` reference itself is never reassigned/replaced.
+
+**Enemy sword:** each enemy tick, `updateEnemySword()` (in
+[game.js](game.js)) draws an `EnemySword` (`"-"`, one tile in front
+of the enemy along `direction`, `z = 25`) when the enemy is alive,
+not pushed, on the player's row, within `ENEMY_SWORD_DRAW_DISTANCE`
+(2) cells, and `enemy.swordReadyAt` has passed. `sheathEnemySword()`
+removes it after `ENEMY_SWORD_DURATION` (1200ms) and sets
+`swordReadyAt` to now + `ENEMY_SWORD_COOLDOWN` (800ms). `enemy.sword`
+is the current sword or `null`, mirroring `player.sword`; whether it's
+out at the moment of impact changes the collision outcome (see "Push"
+below).
 
 The enemy isn't in `parallaxObjects` (it has no corners, its position
 isn't a function of the player) and isn't checked in `wouldCollideAt`
@@ -254,14 +274,18 @@ speed/direction fields directly, only these methods, so the knockback
 rules themselves live on the class and `game.js` just orchestrates
 *when* to call them.
 
-The reaction to a player/enemy collision, resolved by the player's
-combat state at the moment of impact:
+The reaction to a player/enemy collision, resolved by both sides'
+weapons at the moment of impact. "Enemy speed" is `enemy.speed`
+(current approach speed, or 1 while patrolling); the player's speed
+is `PLAYER_SWORD_SPEED` (3), the force of its swing:
 
-| Player state | Player result | Enemy result |
-|---|---|---|
-| bare-handed | knocked back, speed `PUSH_INITIAL_SPEED` (3) | unaffected |
-| sword drawn (exchange) | knocked back, speed = enemy's (`Math.abs(enemy.direction)`, always 1) | knocked back, speed `PUSH_INITIAL_SPEED` (3) |
-| shield up (reflector) | unaffected (speed stays 0) | knocked back, speed `PUSH_INITIAL_SPEED` (3) |
+| Player | Enemy | Player result | Enemy result |
+|---|---|---|---|
+| shield up (reflector) | any | unaffected | knocked back, `PUSH_INITIAL_SPEED` (3) |
+| sword drawn | sword drawn (exchange) | knocked back, enemy speed | knocked back, `PLAYER_SWORD_SPEED` |
+| sword drawn | unarmed | unaffected | knocked back, `PLAYER_SWORD_SPEED` + enemy speed |
+| bare-handed | sword drawn | knocked back, `PUSH_INITIAL_SPEED` + enemy speed | unaffected |
+| bare-handed | unarmed | knocked back, `PUSH_INITIAL_SPEED` (3) | unaffected |
 
 If both `sword` and `shield` are somehow active at once, shield wins —
 blocking takes priority over attacking.
@@ -271,7 +295,7 @@ blocking takes priority over attacking.
   its patrol interval — is the only trigger point, and only fires when
   the enemy is still `alive` and *neither* side is already mid-push
   (so standing inside the enemy for several ticks doesn't keep
-  re-triggering it). It reads `player.sword`/`player.shield`
+  re-triggering it). It reads `player.sword`/`player.shield`/`enemy.sword`
   (non-null exactly while a swing/shield is active) to pick which row
   of the table above applies, and calls `.push.start(direction,
   speed)` on the player and/or the enemy accordingly.
@@ -295,9 +319,11 @@ blocking takes priority over attacking.
     than bouncing/clamping.
   - Either side actually changing cell triggers one
     `updateParallax()` + `renderer.render()` for the tick.
-- Recovery pacing (player only — the enemy has no input to fight a
-  push with, so it never recovers, only rides it out to a stop or a
-  vanish): pressing an arrow key while `player.push.active()` calls
+- Enemy recovery: the enemy has no input to fight a push with, so
+  each push-loop tick calls `enemy.push.recoverOverTime(PUSH_STEP_INTERVAL,
+  ENEMY_PUSH_RECOVER_INTERVAL, ENEMY_PUSH_RECOVER_AMOUNT)` — it loses
+  1 speed every 500ms, with leftover time carried over between ticks.
+- Player recovery pacing: pressing an arrow key while `player.push.active()` calls
   `player.push.recoverStep(PUSH_RECOVER_PRESSES_PER_POINT)`, which
   adds 1 to `recoverProgress` and, once that hits
   `PUSH_RECOVER_PRESSES_PER_POINT` (1), resets it and drops `speed` by
@@ -318,9 +344,7 @@ Known gaps / deliberate simplifications:
   push tick never moves the player, so parallax positions don't shift
   mid-check (unlike `wouldCollideAt`, which has to predict, since the
   player's own move is what shifts them).
-- The enemy never has its own sword/shield — "both sides armed" (the
-  original design's third case, distinct from today's sword exchange)
-  can't occur, since the enemy has no weapon state to be in.
+- The enemy has no shield, only a sword.
 
 ## Particles
 
@@ -350,6 +374,21 @@ Currently spawned in two places:
   spawns one particle at `TRACE_PARTICLE_SPEED` (1) there, leaving a
   trace behind. An enemy that vanishes on a tick leaves no trail for
   that tick, since it never lands.
+
+## Squiggle
+
+Holding `D` grows a `Squiggle` ([Squiggle.js](Squiggle.js), `z = 22`,
+referenced as `player.squiggle`) from the tile right of the player:
+one random letter from `Squiggle.CHARACTERS` (`"=-~+"`) every
+`SQUIGGLE_GROW_INTERVAL` (60ms), up to `SQUIGGLE_MAX_LENGTH` (20).
+Each letter is one column right of the previous one; the row only
+changes (randomly one up, one down, or the same) on every
+`Squiggle.DY_STEP_EVERY` (2nd) letter. Every growth step re-rolls
+the whole string (letters and path) at the new length. It's glued to the player via getters
+(it keeps its shape while the player moves) and is removed on
+`keyup`. Purely decorative — no collision check reads it, so it
+never affects combat. Like the shield, a missed `keyup` would leave
+it stuck on.
 
 ## Parallax scenery
 

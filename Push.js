@@ -17,6 +17,10 @@ class Push {
         // Recovery keypresses accumulated toward shaving 1 off
         // speed - see recoverStep().
         this.recoverProgress = 0;
+
+        // Milliseconds accumulated toward shaving speed off - see
+        // recoverOverTime().
+        this.recoverTime = 0;
     }
 
 
@@ -30,6 +34,7 @@ class Push {
         this.speed = speed;
         this.offset = 0;
         this.recoverProgress = 0;
+        this.recoverTime = 0;
     }
 
 
@@ -38,6 +43,7 @@ class Push {
         this.direction = 0;
         this.offset = 0;
         this.recoverProgress = 0;
+        this.recoverTime = 0;
     }
 
 
@@ -64,11 +70,31 @@ class Push {
 
         if (this.recoverProgress >= pressesPerPoint) {
             this.recoverProgress = 0;
-            this.speed -= 1;
+            this.loseSpeed(1);
+        }
+    }
 
-            if (this.speed <= 0) {
-                this.stop();
-            }
+
+    // Time-based recovery, for owners with no keys to fight the
+    // push with: every msPerStep of elapsedMs accumulated, shaves
+    // `amount` off speed. The leftover time carries over, so the
+    // pace stays exact even if elapsedMs doesn't divide msPerStep.
+    recoverOverTime(elapsedMs, msPerStep, amount) {
+        this.recoverTime += elapsedMs;
+
+        while (this.active() && this.recoverTime >= msPerStep) {
+            this.recoverTime -= msPerStep;
+            this.loseSpeed(amount);
+        }
+    }
+
+
+    // Drops speed by amount, stop()ping outright once it bottoms out.
+    loseSpeed(amount) {
+        this.speed -= amount;
+
+        if (this.speed <= 0) {
+            this.stop();
         }
     }
 }

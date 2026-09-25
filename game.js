@@ -165,6 +165,7 @@ function startGame() {
         }
 
         enemy.step(player);
+        updateEnemySword();
         checkEnemyEncounter();
         renderer.render();
     }, ENEMY_STEP_INTERVAL);
@@ -227,32 +228,101 @@ function hideShield() {
 
 
 // ==================================================
+// Combat: enemy sword
+//
+// While closing in on the player's row, the enemy draws its
+// sword ("-", see EnemySword.js) once the player is within
+// ENEMY_SWORD_DRAW_DISTANCE cells, puts it away again after
+// ENEMY_SWORD_DURATION, and waits ENEMY_SWORD_COOLDOWN before it
+// can draw again.
+// ==================================================
+
+const ENEMY_SWORD_DRAW_DISTANCE = 2;
+const ENEMY_SWORD_DURATION = 1200;
+const ENEMY_SWORD_COOLDOWN = 800;
+
+
+// Called every enemy tick - draws the sword if the enemy is in
+// range, able to fight and not still cooling down.
+function updateEnemySword() {
+
+    if (!enemy.alive || enemy.sword || enemy.push.active()) {
+        return;
+    }
+
+    if (player.y !== enemy.y) {
+        return;
+    }
+
+    if (Math.abs(player.x - enemy.x) > ENEMY_SWORD_DRAW_DISTANCE) {
+        return;
+    }
+
+    if (performance.now() < enemy.swordReadyAt) {
+        return;
+    }
+
+    drawEnemySword();
+}
+
+
+function drawEnemySword() {
+
+    enemy.sword = new EnemySword(enemy);
+    renderer.add(enemy.sword);
+    renderer.render();
+
+    setTimeout(sheathEnemySword, ENEMY_SWORD_DURATION);
+}
+
+
+function sheathEnemySword() {
+
+    if (!enemy.sword) {
+        return;
+    }
+
+    renderer.remove(enemy.sword);
+    enemy.sword = null;
+    enemy.swordReadyAt = performance.now() + ENEMY_SWORD_COOLDOWN;
+    renderer.render();
+}
+
+
+// ==================================================
 // Push: knockback from running into the enemy
 //
 // Both player and enemy carry a Push (see Push.js): a speed
 // (cells per tick, may be fractional - a hidden sub-cell offset
 // accumulates it and only whole cells crossed actually move
-// anyone) and a direction, away from the other side. Neither decays on its own - the player's only goes down
-// by pressing an arrow key (see the keydown handler); the
-// enemy's never recovers at all, since it has no input to fight
-// it with - it either rides the knockback out to a stop against
-// the border/environment (vanishing there, see stepEnemyPush())
-// or, more often, is still mid-push when the next patrol tick
-// would fire and just keeps drifting.
+// anyone) and a direction, away from the other side. The
+// player's only goes down by pressing an arrow key (see the
+// keydown handler); the enemy has no input to fight it with, so
+// it recovers on its own instead - ENEMY_PUSH_RECOVER_AMOUNT
+// speed every ENEMY_PUSH_RECOVER_INTERVAL - unless it hits the
+// border/environment first (vanishing there, see
+// stepEnemyPush()).
 //
-// Combat resolution, decided by the player's state at the
-// moment of collision:
-// - bare-handed: only the player is knocked back
-// - sword drawn: an exchange - each side is knocked back with
-//   the *other* side's speed (the enemy's is always 1, its
-//   patrol step)
+// Combat resolution, decided by both sides' weapons at the
+// moment of collision. The enemy's speed is its current approach
+// speed (enemy.speed); the player's is PLAYER_SWORD_SPEED, the
+// force of its swing:
 // - shield up: a reflector - the player takes nothing, the
-//   enemy takes the full knockback instead
-// Shield wins if somehow both are active at once (blocking
-// takes priority over attacking).
+//   enemy bounces off with PUSH_INITIAL_SPEED
+// - both swords drawn: an exchange - each side is knocked back
+//   with the *other* side's speed
+// - only the player's sword drawn: the player takes nothing, the
+//   enemy bounces off with the sum of both speeds
+// - only the enemy's sword drawn: the player is knocked back with
+//   PUSH_INITIAL_SPEED plus the enemy's speed
+// - neither armed: only the player is knocked back, with
+//   PUSH_INITIAL_SPEED
+// Shield wins if somehow both shield and sword are active at
+// once (blocking takes priority over attacking).
 // ==================================================
 
 const PUSH_INITIAL_SPEED = 3;
+const PLAYER_SWORD_SPEED = 3;
 
 // Burst spawned where the player and enemy collide, and the
 // (slower) speed of the trace particles a pushed player/enemy
@@ -266,6 +336,11 @@ const PUSH_STEP_INTERVAL = 200;
 // player's push speed. Higher = slower to recover from a push.
 const PUSH_RECOVER_PRESSES_PER_POINT = 1;
 
+// The enemy's self-recovery from a push: loses
+// ENEMY_PUSH_RECOVER_AMOUNT speed every ENEMY_PUSH_RECOVER_INTERVAL ms.
+const ENEMY_PUSH_RECOVER_INTERVAL = 500;
+const ENEMY_PUSH_RECOVER_AMOUNT = 1;
+
 
 // Removes the enemy for good - called once a push carries it
 // into the border or the environment. Its own push is stopped
@@ -273,6 +348,7 @@ const PUSH_RECOVER_PRESSES_PER_POINT = 1;
 function vanishEnemy() {
     enemy.alive = false;
     enemy.push.stop();
+    sheathEnemySword();
     renderer.remove(enemy);
 }
 
@@ -345,9 +421,15 @@ function checkEnemyEncounter() {
     if (player.shield) {
         enemy.push.start(awayFromPlayer, PUSH_INITIAL_SPEED);
     }
+    else if (player.sword && enemy.sword) {
+        player.push.start(awayFromEnemy, enemy.speed);
+        enemy.push.start(awayFromPlayer, PLAYER_SWORD_SPEED);
+    }
     else if (player.sword) {
-        player.push.start(awayFromEnemy, Math.abs(enemy.direction));
-        enemy.push.start(awayFromPlayer, PUSH_INITIAL_SPEED);
+        enemy.push.start(awayFromPlayer, PLAYER_SWORD_SPEED + enemy.speed);
+    }
+    else if (enemy.sword) {
+        player.push.start(awayFromEnemy, PUSH_INITIAL_SPEED + enemy.speed);
     }
     else {
         player.push.start(awayFromEnemy, PUSH_INITIAL_SPEED);
@@ -384,6 +466,12 @@ setInterval(() => {
             spawnPushTrail(startX, enemy.x, enemy.y);
             moved = true;
         }
+
+        enemy.push.recoverOverTime(
+            PUSH_STEP_INTERVAL,
+            ENEMY_PUSH_RECOVER_INTERVAL,
+            ENEMY_PUSH_RECOVER_AMOUNT
+        );
     }
 
     if (moved) {
@@ -454,6 +542,61 @@ setInterval(() => {
 
 
 // ==================================================
+// Squiggle (D, held)
+//
+// Decorative only - a string of random letters (see Squiggle.js)
+// grows from the player one letter every SQUIGGLE_GROW_INTERVAL
+// ms while "D" is held, up to SQUIGGLE_MAX_LENGTH letters, and
+// vanishes on release. Nothing collides with it.
+// ==================================================
+
+const SQUIGGLE_GROW_INTERVAL = 5;
+const SQUIGGLE_MAX_LENGTH = 20;
+
+let squiggleTimer = null;
+
+
+function startSquiggle() {
+
+    if (player.squiggle) {
+        return;
+    }
+
+    player.squiggle = new Squiggle(player);
+    renderer.add(player.squiggle);
+
+    growSquiggle();
+    squiggleTimer = setInterval(growSquiggle, SQUIGGLE_GROW_INTERVAL);
+}
+
+
+function growSquiggle() {
+
+    if (!player.squiggle || player.squiggle.length >= SQUIGGLE_MAX_LENGTH) {
+        player.squiggle.generate(player.squiggle.segments.length);
+        return;
+    }
+
+    player.squiggle.grow();
+    renderer.render();
+}
+
+function stopSquiggle() {
+
+    if (!player.squiggle) {
+        return;
+    }
+
+    clearInterval(squiggleTimer);
+    squiggleTimer = null;
+
+    renderer.remove(player.squiggle);
+    player.squiggle = null;
+    renderer.render();
+}
+
+
+// ==================================================
 // Input: title screen -> game, then move the player
 // ==================================================
 
@@ -482,6 +625,11 @@ document.addEventListener("keydown", event => {
 
     if (key === "a") {
         showShield();
+        return;
+    }
+
+    if (key === "d") {
+        startSquiggle();
         return;
     }
 
@@ -537,7 +685,13 @@ document.addEventListener("keydown", event => {
 
 document.addEventListener("keyup", event => {
 
-    if (event.key.toLowerCase() === "a") {
+    const key = event.key.toLowerCase();
+
+    if (key === "a") {
         hideShield();
+    }
+
+    if (key === "d") {
+        stopSquiggle();
     }
 });
