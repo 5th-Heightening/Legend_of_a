@@ -380,11 +380,13 @@ Currently spawned in two places:
 Holding `D` grows a `Squiggle` ([Squiggle.js](Squiggle.js), `z = 22`,
 referenced as `player.squiggle`) from the tile right of the player:
 one random letter from `Squiggle.CHARACTERS` (`"=-~+"`) every
-`SQUIGGLE_GROW_INTERVAL` (60ms), up to `SQUIGGLE_MAX_LENGTH` (20).
+`SQUIGGLE_GROW_INTERVAL` (5ms), up to `SQUIGGLE_MAX_LENGTH` (20).
 Each letter is one column right of the previous one; the row only
 changes (randomly one up, one down, or the same) on every
 `Squiggle.DY_STEP_EVERY` (2nd) letter. Every growth step re-rolls
-the whole string (letters and path) at the new length. It's glued to the player via getters
+the whole string (letters and path) at the new length; once it
+reaches `SQUIGGLE_MAX_LENGTH` it keeps being re-rolled at that
+length every tick, so it flickers for as long as `D` is held. It's glued to the player via getters
 (it keeps its shape while the player moves) and is removed on
 `keyup`. Purely decorative — no collision check reads it, so it
 never affects combat. Like the shield, a missed `keyup` would leave

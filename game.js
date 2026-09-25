@@ -546,8 +546,9 @@ setInterval(() => {
 //
 // Decorative only - a string of random letters (see Squiggle.js)
 // grows from the player one letter every SQUIGGLE_GROW_INTERVAL
-// ms while "D" is held, up to SQUIGGLE_MAX_LENGTH letters, and
-// vanishes on release. Nothing collides with it.
+// ms while "D" is held, up to SQUIGGLE_MAX_LENGTH letters, then
+// keeps being re-rolled at that length every tick. It vanishes on
+// release. Nothing collides with it.
 // ==================================================
 
 const SQUIGGLE_GROW_INTERVAL = 5;
@@ -570,16 +571,25 @@ function startSquiggle() {
 }
 
 
+// Grows the squiggle by one letter, or - once it's at full
+// length - re-rolls it at that length, so it keeps flickering
+// for as long as "D" is held.
 function growSquiggle() {
 
-    if (!player.squiggle || player.squiggle.length >= SQUIGGLE_MAX_LENGTH) {
-        player.squiggle.generate(player.squiggle.segments.length);
+    if (!player.squiggle) {
         return;
     }
 
-    player.squiggle.grow();
+    if (player.squiggle.length >= SQUIGGLE_MAX_LENGTH) {
+        player.squiggle.generate(SQUIGGLE_MAX_LENGTH);
+    }
+    else {
+        player.squiggle.grow();
+    }
+
     renderer.render();
 }
+
 
 function stopSquiggle() {
 
