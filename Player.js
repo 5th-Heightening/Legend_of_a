@@ -16,6 +16,10 @@ class Player extends MovingObject {
         // Decorative letter string while "D" is held, or null - see
         // startSquiggle()/stopSquiggle() in game.js.
         this.squiggle = null;
+
+        // Flips to false once a push carries it into the
+        // environment/border - see killPlayer() in game.js.
+        this.alive = true;
     }
 
 

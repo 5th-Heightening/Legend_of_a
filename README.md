@@ -31,6 +31,7 @@ by `SplashScreen.js`/`SpeechBubble.js` before this split:
 | [Enemy.js](Enemy.js) | Patrolling/combat enemy (`extends MovingObject`). |
 | [EnemySword.js](EnemySword.js) | The enemy's `-` sword, glued to the enemy — see "Enemy" below. |
 | [Push.js](Push.js) | Knockback state (speed, direction, recovery), one per `Mover`. |
+| [DeathJump.js](DeathJump.js) | Death feedback: a dying character's copy jumps up and falls out of the play area — see "Push" below. |
 | [Particle.js](Particle.js) | Short-lived drifting particle that decays through a random character sequence — see "Particles" below. |
 | [Squiggle.js](Squiggle.js) | Decorative random-letter string grown from the player while `D` is held — see "Squiggle" below. |
 | [BlinkingText.js](BlinkingText.js) | The "Press any key" title-screen prompt. |
@@ -115,9 +116,20 @@ collision" below) to block the player from walking into scenery.
 `onCollision`) still isn't called anywhere — it's there for whenever
 hazards/pickups need an event rather than a hard block.
 
-Current viewport size is `41 x 18` (set where `AsciiRenderer` is
+Current play area size is `41 x 18` (set where `AsciiRenderer` is
 constructed), chosen because the splash art is 40 characters wide at
 its widest line.
+
+**Border:** the optional 4th constructor argument, `borderChar`
+(`VIEWPORT_BORDER_CHAR`, `"#"`, in [game.js](game.js)), makes
+`render()` wrap the finished buffer in a one-cell frame of that
+character (`frame()`), so the play area's edges are visible. The
+frame is outside the play area: `renderer.width`/`height` and all
+game coordinates are unchanged, and nothing can be drawn onto or
+collide with it. The `#viewport` CSS size in
+[Legend_of_a.html](Legend_of_a.html) is the play area + 2 in each
+direction (`43ch x 20em`). Change both together if the play area
+size changes.
 
 ## Game loop
 
@@ -441,6 +453,14 @@ decides everything directional:
     and its sword from the world and the movement system) instead of
     landing there. This is the "enemy dies hitting the
     environment/border" case from the original design.
+    `vanishEnemy()` then calls `playDeathJump(enemy)`: a `DeathJump`
+    (`z = 30`, same character as the dead one) starts at the enemy's
+    last cell and jumps straight up at `DeathJump.JUMP_SPEED` (18
+    cells/s). `DeathJump.GRAVITY` (40 cells/s²) pulls it back down
+    (peak ≈ 4 cells) until it has fallen below the play area's bottom
+    edge, where it removes itself. `playDeathJump(character)` works
+    for any character. The player can't die yet, but a player death
+    should call it too.
 - Enemy recovery: see "Enemy" — 5 cells/s off every 500ms.
 - Player recovery (in `PlayerController.recover()`): while
   `player.push.active()`, arrow keys don't move the player. Every

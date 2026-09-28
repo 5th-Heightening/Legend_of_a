@@ -43,7 +43,7 @@ const movement = new MovementSystem();
 // 5. draw
 function tick(dt) {
 
-    if (gameStarted) {
+    if (gameStarted && player.alive) {
         playerController.update(dt);
     }
 
@@ -212,8 +212,10 @@ function enemyFitsAt(x, y) {
 // The MovementSystem (see MovementSystem.js) moves both, one cell at
 // a time, in this order - the player first.
 //
-// - Player: stays inside the viewport and is blocked by scenery,
-//   whether walking or pushed. Every step shifts the parallax.
+// - Player: stays inside the viewport and is blocked by scenery.
+//   Walking into them just stops, but a push that would carry it
+//   into them kills it - see killPlayer(). Every step shifts the
+//   parallax.
 // - Enemy: its own steps follow Enemy.allowsStep() (never onto or
 //   past the player while chasing). A push that would carry it off
 //   the display or into scenery kills it instead - see vanishEnemy().
@@ -237,6 +239,14 @@ function registerMovement() {
             y >= PLAYER_MIN_Y && y <= PLAYER_MAX_Y &&
             !wouldCollideAt(x, y) &&
             !occupies(enemy, x, y),
+
+        // Only a push into the border/scenery kills - walking into
+        // them, or being pushed against the enemy, just stops.
+        onBlocked: (x, y) => {
+            if (player.push.active() && !occupies(enemy, x, y)) {
+                killPlayer();
+            }
+        },
 
         onMoved: (fromX, fromY) => {
             if (player.push.active()) {
@@ -300,7 +310,7 @@ const SWORD_FRAME_DURATION = 120;
 function swingSword() {
 
     // A swing already in progress isn't interrupted or restarted.
-    if (player.sword) {
+    if (!player.alive || player.sword) {
         return;
     }
 
@@ -311,7 +321,7 @@ function swingSword() {
 
 function showShield() {
 
-    if (player.shield) {
+    if (!player.alive || player.shield) {
         return;
     }
 
@@ -354,7 +364,7 @@ function updateEnemySword() {
         return;
     }
 
-    if (player.y !== enemy.y) {
+    if (!player.alive || player.y !== enemy.y) {
         return;
     }
 
@@ -411,8 +421,18 @@ const TRACE_PARTICLE_SPEED = 1;
 const TRACE_PARTICLE_DENSITY = .5;
 
 
+// Death feedback for any character: a copy of it jumps straight up
+// from where it stands and falls out of the play area (see
+// DeathJump.js). Removing the character itself is up to the caller.
+function playDeathJump(character) {
+    world.add(new DeathJump(character.x, character.y, character.getAscii(), renderer.height));
+}
+
+
 // Removes the enemy for good - called once a push carries it
-// into the border or the environment.
+// into the border or the environment. It stays where it was when
+// the blocked step was tried, so the death jump starts right at
+// the border/scenery it hit.
 function vanishEnemy() {
     enemy.alive = false;
     enemy.push.stop();
@@ -425,6 +445,31 @@ function vanishEnemy() {
 
     world.remove(enemy);
     movement.remove(enemy);
+
+    playDeathJump(enemy);
+}
+
+
+// Removes the player for good - called once a push carries it into
+// the border or the environment. Everything it had out goes with
+// it; from then on input is ignored and the enemy goes back to
+// patrolling (see Enemy.isChasing()).
+function killPlayer() {
+    player.alive = false;
+    player.push.stop();
+
+    if (player.sword) {
+        world.remove(player.sword);
+        player.sword = null;
+    }
+
+    hideShield();
+    stopSquiggle();
+
+    world.remove(player);
+    movement.remove(player);
+
+    playDeathJump(player);
 }
 
 
@@ -479,7 +524,7 @@ function findContact(partsA, partsB) {
 // away doesn't hit).
 function checkEnemyEncounter() {
 
-    if (!enemy.alive) {
+    if (!enemy.alive || !player.alive) {
         return;
     }
 
@@ -570,7 +615,7 @@ function spawnParticles(x, y, count, speed = PARTICLE_SPEED, gravitation = true)
 
 function startSquiggle() {
 
-    if (player.squiggle) {
+    if (!player.alive || player.squiggle) {
         return;
     }
 

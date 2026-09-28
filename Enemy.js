@@ -60,9 +60,9 @@ class Enemy extends MovingObject {
     }
 
 
-    // Same row as the target - combat mode.
+    // Same row as a living target - combat mode.
     isChasing() {
-        return this.target && this.target.y === this.y;
+        return this.target && this.target.alive !== false && this.target.y === this.y;
     }
 
 
