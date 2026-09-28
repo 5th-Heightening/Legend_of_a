@@ -146,8 +146,8 @@ counter and advances it in `update(dt)`.
 One tick, in this order:
 
 1. **Input** — `playerController.update(dt)` turns the arrow keys
-   pressed/held since the last tick into a queued step or push
-   recovery (see "Player").
+   pressed/held since the last tick into a queued step, and wears off
+   an active push on the player (see "Push").
 2. **Objects** — `world.update(dt)`: every object in the `World`
    ([World.js](World.js)) that has an `update(dt)` method runs it —
    enemy AI, sword/enemy-sword timers, particles, squiggle, title
@@ -263,8 +263,9 @@ the key handlers only call `playerController.press(key, repeat)`/
   (120ms = 3 ticks)
 - the most recently pressed arrow is the direction; releasing it falls
   back to the next one still held
-- a tap pressed *and* released between two ticks still counts, which
-  matters for mashing out of a push
+- a tap pressed *and* released between two ticks still counts
+- while pushed, the player keeps moving, except when holding the arrow
+  against the push (digging in, see "Push")
 
 A window `blur` drops all held arrows, since no `keyup` would arrive
 for them.
@@ -273,7 +274,9 @@ for them.
 the controller whenever `ArrowLeft`/`ArrowRight` is the active
 direction — `ArrowUp`/`Down` leave it untouched, and it updates even
 if the move itself is blocked by a collision, since it's about which
-way the player is turned, not whether they actually moved.
+way the player is turned, not whether they actually moved. While
+pushed, `facing` doesn't change, so the player stays turned toward
+where the push came from.
 
 ## Combat: sword and shield
 
@@ -384,9 +387,10 @@ Not done yet, deliberately out of scope for now:
 
 `Push` ([Push.js](Push.js)) is a small class — `speed` (cells per
 second, may be fractional, `0` = inactive), `direction` (`-1`/`1`),
-and recovery counters — with `active()`, a `velocity` getter,
-`start(direction, speed)`, `stop()`, `recoverStep(pressesPerPoint,
-weight, amount)` and `recoverOverTime(elapsedMs, msPerStep, amount)`.
+and a recovery timer — with `active()`, a `velocity` getter,
+`start(direction, speed)`, `stop()`, `isAgainst(dx)`/`isAlong(dx)`,
+`wearOff(elapsedMs, dx, msPerStep, amount)` and
+`recoverOverTime(elapsedMs, msPerStep, amount)`.
 Each `Mover` owns one (`player.push`/`enemy.push` are getters for
 it). Push only holds the knockback; the `Mover` turns its velocity
 into cells like any other movement (see "Movement"). A push is
@@ -445,8 +449,10 @@ decides everything directional:
   and/or the enemy accordingly.
 - Moving anyone mid-push is ordinary movement (see "Movement"), with
   these per-object rules:
-  - **Player**: blocked by the viewport edge and by scenery. It stays
-    there while the push wears off.
+  - **Player**: a push step into the viewport edge or scenery calls
+    `killPlayer()`. Its own steps while pushed (sideways, or riding
+    the push) are blocked there like normal walking; only a blocked
+    step in the push direction kills.
   - **Enemy**: *not* clamped. A push step that would leave the display
     or overlap any `parallaxObjects` shape (`enemyFitsAt()`) calls
     `vanishEnemy()` (sets `alive = false`, stops its push, removes it
@@ -462,15 +468,20 @@ decides everything directional:
     for any character. The player can't die yet, but a player death
     should call it too.
 - Enemy recovery: see "Enemy" — 5 cells/s off every 500ms.
-- Player recovery (in `PlayerController.recover()`): while
-  `player.push.active()`, arrow keys don't move the player. Every
-  fresh press counts 1 toward `PUSH_RECOVER_PRESSES_PER_POINT` (1), a
-  held key's repeat (every `MOVE_INTERVAL`) only
-  `PUSH_RECOVER_HOLD_WEIGHT` (0.25), so tapping recovers much faster
-  than holding. Each full point drops the push speed by
-  `PUSH_RECOVER_AMOUNT` (5 cells/s), auto-`stop()`ing at 0. All
-  these constants are statics on `PlayerController`. It doesn't matter
-  which of the 4 arrow keys is pressed, only that one is.
+- Player recovery (balance, not control): while
+  `player.push.active()`, the player keeps moving and steering.
+  `PlayerController.update()` calls `push.wearOff()` every tick with
+  the active arrow's `dx`. The push loses
+  `PlayerController.PUSH_RECOVER_AMOUNT` (5 cells/s) every
+  `PlayerController.PUSH_RECOVER_INTERVAL` (500ms), scaled by the
+  input:
+  - no arrow / up / down: normal pace; up/down step as usual
+  - against the push (**digging in**): `Push.DIG_IN_FACTOR` (4) times
+    faster, and the player doesn't step
+  - along the push (**riding it**): `Push.RIDE_FACTOR` (1), and the
+    player steps on top of the push
+
+  It's time-based on the held key, so mashing gives no advantage.
 
 Known gaps / deliberate simplifications:
 

@@ -21,9 +21,9 @@ I think most of the clunkiness comes from how the fight is built, not from the p
 
 **3. Parry by timing instead of holding.** Pressing the shield just before the enemy's active window is a parry: a big push for the enemy and you don't move at all. Holding the shield all the time only half-blocks: both of you slide back a little. Now the shield is a skill, not a toggle you can keep pressed.
 
-**4. Push as losing your balance, not losing control.** While pushed, you keep moving and steering. Pressing *toward* the enemy digs in and slows you down faster. Pressing *away* rides the push (a retreat you choose). Mashing any key goes away. The fight becomes a game of footing.
+**4. Implemented: Push as losing your balance, not losing control.** While pushed, you keep moving and steering. Pressing *toward* the enemy digs in and slows you down faster. Pressing *away* rides the push (a retreat you choose). Mashing any key goes away. The fight becomes a game of footing.
 
-**5. Knock-outs, like sumo.** Enemies already die when pushed into the border or scenery. Make that the main way to win, and make it apply to the player too. Then every push matters and the arena's layout becomes part of the fight. To make it readable, mark the danger zones, e.g. the tree's collision area and the screen edges.
+**5. Implemented: Knock-outs, like sumo.** Enemies already die when pushed into the border or scenery. Make that the main way to win, and make it apply to the player too. Then every push matters and the arena's layout becomes part of the fight. To make it readable, mark the danger zones, e.g. the tree's collision area and the screen edges.
 
 **6. Make hits feel like hits.**
 - **Hit-stop:** freeze the whole game for 60–100 ms on a hit.

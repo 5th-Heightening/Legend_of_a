@@ -6,13 +6,17 @@
 // done in game.js.
 class Push {
 
+    // How the owner's own horizontal input changes how fast the push
+    // wears off (see wearOff()): pushing against it ("digging in")
+    // wears it off DIG_IN_FACTOR times faster, going along with it
+    // ("riding it") at RIDE_FACTOR.
+    static DIG_IN_FACTOR = 4;
+    static RIDE_FACTOR = 1;
+
+
     constructor() {
         this.speed = 0;
         this.direction = 0;
-
-        // Recovery keypresses accumulated toward shaving speed off -
-        // see recoverStep().
-        this.recoverProgress = 0;
 
         // Milliseconds accumulated toward shaving speed off - see
         // recoverOverTime().
@@ -31,10 +35,23 @@ class Push {
     }
 
 
+    // True if horizontal input dx (-1/0/1) pushes back against an
+    // active push.
+    isAgainst(dx) {
+        return this.active() && dx !== 0 && dx === -this.direction;
+    }
+
+
+    // True if horizontal input dx (-1/0/1) goes along with an active
+    // push.
+    isAlong(dx) {
+        return this.active() && dx !== 0 && dx === this.direction;
+    }
+
+
     start(direction, speed) {
         this.direction = direction;
         this.speed = speed;
-        this.recoverProgress = 0;
         this.recoverTime = 0;
     }
 
@@ -42,30 +59,30 @@ class Push {
     stop() {
         this.speed = 0;
         this.direction = 0;
-        this.recoverProgress = 0;
         this.recoverTime = 0;
     }
 
 
-    // One recovery keypress. Once pressesPerPoint of these have
-    // accumulated, shaves `amount` off speed and resets the counter -
-    // stop()s outright once speed bottoms out.
-    // `weight` is how much this press counts - 1 for a real press,
-    // less for weaker input (e.g. a held key's repeat tick).
-    recoverStep(pressesPerPoint, weight, amount) {
-        this.recoverProgress += weight;
+    // Time-based recovery, scaled by the owner's horizontal input dx
+    // (-1/0/1): against the push digs in (DIG_IN_FACTOR), along it
+    // rides it (RIDE_FACTOR), no input recovers at the normal pace.
+    wearOff(elapsedMs, dx, msPerStep, amount) {
+        let factor = 1;
 
-        if (this.recoverProgress >= pressesPerPoint) {
-            this.recoverProgress = 0;
-            this.loseSpeed(amount);
+        if (this.isAgainst(dx)) {
+            factor = Push.DIG_IN_FACTOR;
         }
+        else if (this.isAlong(dx)) {
+            factor = Push.RIDE_FACTOR;
+        }
+
+        this.recoverOverTime(elapsedMs * factor, msPerStep, amount);
     }
 
 
-    // Time-based recovery, for owners with no keys to fight the
-    // push with: every msPerStep of elapsedMs accumulated, shaves
-    // `amount` off speed. The leftover time carries over, so the
-    // pace stays exact even if elapsedMs doesn't divide msPerStep.
+    // Time-based recovery: every msPerStep of elapsedMs accumulated,
+    // shaves `amount` off speed. The leftover time carries over, so
+    // the pace stays exact even if elapsedMs doesn't divide msPerStep.
     recoverOverTime(elapsedMs, msPerStep, amount) {
         this.recoverTime += elapsedMs;
 

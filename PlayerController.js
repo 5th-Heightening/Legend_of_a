@@ -8,8 +8,10 @@
 // recently pressed one wins; releasing it falls back to the next one
 // still held.
 //
-// While the player is being pushed, arrow keys don't move it - they
-// fight the knockback instead (see update()).
+// While the player is being pushed, it keeps moving and steering. The
+// push wears off on its own; holding the arrow against it digs in
+// (no step, wears off faster), holding it along the push rides it
+// (steps on top of the push). See Push.wearOff().
 class PlayerController {
 
     static DIRECTIONS = {
@@ -22,17 +24,11 @@ class PlayerController {
     // Time between steps while an arrow is held.
     static MOVE_INTERVAL = 120;
 
-    // How many recovery keypresses it takes to shave
-    // PUSH_RECOVER_AMOUNT (cells per second) off the player's push
-    // speed. Higher = slower to recover from a push.
-    static PUSH_RECOVER_PRESSES_PER_POINT = 1;
+    // While pushed, the push wears off by PUSH_RECOVER_AMOUNT (cells
+    // per second) every PUSH_RECOVER_INTERVAL ms on its own - faster
+    // or slower depending on the held arrow, see Push.wearOff().
+    static PUSH_RECOVER_INTERVAL = 500;
     static PUSH_RECOVER_AMOUNT = 5;
-
-    // How much one held-arrow repeat (every MOVE_INTERVAL while the
-    // key stays down) counts toward recovery, compared to a fresh
-    // press (1). Lower = holding recovers slower, so tapping is the
-    // way to recover quickly.
-    static PUSH_RECOVER_HOLD_WEIGHT = 0.25;
 
 
     constructor(player) {
@@ -89,6 +85,18 @@ class PlayerController {
 
         const presses = this.presses.splice(0);
         const key = presses.at(-1) ?? this.heldArrows.at(-1);
+        const push = this.player.push;
+
+        if (push.active()) {
+            const dx = key ? PlayerController.DIRECTIONS[key].dx : 0;
+
+            push.wearOff(
+                dt,
+                dx,
+                PlayerController.PUSH_RECOVER_INTERVAL,
+                PlayerController.PUSH_RECOVER_AMOUNT
+            );
+        }
 
         if (!key) {
             this.holdTime = 0;
@@ -97,7 +105,12 @@ class PlayerController {
 
         const { dx, dy } = PlayerController.DIRECTIONS[key];
 
-        if (dx !== 0) {
+        // Digging in: stand your ground, don't step.
+        const diggingIn = push.isAgainst(dx);
+
+        // While pushed, the player stays turned toward where the push
+        // came from, so riding it doesn't turn its back to the enemy.
+        if (dx !== 0 && !push.active()) {
             this.player.facing = dx < 0 ? "left" : "right";
         }
 
@@ -118,38 +131,12 @@ class PlayerController {
             }
         }
 
-        if (this.player.push.active()) {
-            this.recover(freshPresses, heldRepeat);
+        if (diggingIn) {
             return;
         }
 
         if (freshPresses > 0 || heldRepeat) {
             this.player.mover.queueStep(dx, dy);
-        }
-    }
-
-
-    // Chips away at the push: every fresh press counts fully, a held
-    // key's repeat only PUSH_RECOVER_HOLD_WEIGHT. It doesn't matter
-    // which arrow is pressed, only that one is.
-    recover(freshPresses, heldRepeat) {
-
-        const push = this.player.push;
-
-        for (let i = 0; i < freshPresses; i++) {
-            push.recoverStep(
-                PlayerController.PUSH_RECOVER_PRESSES_PER_POINT,
-                1,
-                PlayerController.PUSH_RECOVER_AMOUNT
-            );
-        }
-
-        if (heldRepeat) {
-            push.recoverStep(
-                PlayerController.PUSH_RECOVER_PRESSES_PER_POINT,
-                PlayerController.PUSH_RECOVER_HOLD_WEIGHT,
-                PlayerController.PUSH_RECOVER_AMOUNT
-            );
         }
     }
 }

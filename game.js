@@ -214,8 +214,9 @@ function enemyFitsAt(x, y) {
 //
 // - Player: stays inside the viewport and is blocked by scenery.
 //   Walking into them just stops, but a push that would carry it
-//   into them kills it - see killPlayer(). Every step shifts the
-//   parallax.
+//   into them kills it - see killPlayer(). While pushed it can still
+//   step; only a step in the push direction can kill. Every step
+//   shifts the parallax.
 // - Enemy: its own steps follow Enemy.allowsStep() (never onto or
 //   past the player while chasing). A push that would carry it off
 //   the display or into scenery kills it instead - see vanishEnemy().
@@ -241,9 +242,12 @@ function registerMovement() {
             !occupies(enemy, x, y),
 
         // Only a push into the border/scenery kills - walking into
-        // them, or being pushed against the enemy, just stops.
+        // them (also sideways while pushed), or being pushed against
+        // the enemy, just stops. Riding the push into them does kill.
         onBlocked: (x, y) => {
-            if (player.push.active() && !occupies(enemy, x, y)) {
+            const alongPush = Math.sign(x - player.x) === player.push.direction;
+
+            if (player.push.active() && alongPush && !occupies(enemy, x, y)) {
                 killPlayer();
             }
         },
