@@ -1,21 +1,15 @@
-class Player {
+class Player extends MovingObject {
 
     constructor(x, y) {
-        this.x = x;
-        this.y = y;
-        this.z = 20;
+        super(x, y, 20);
 
         // Last horizontal direction faced, kept even while
         // moving vertically or standing still.
         this.facing = "right";
 
-        // Knockback - see Push.js and the "Push" section in
-        // game.js for how this is driven.
-        this.push = new Push();
-
         // Currently-equipped weapons, or null when not out. Set/
         // cleared by swingSword()/showShield()/hideShield() in
-        // game.js, which also add/remove them from the renderer.
+        // game.js (a finished swing clears itself, see Sword.js).
         this.sword = null;
         this.shield = null;
 
@@ -27,11 +21,5 @@ class Player {
 
     getAscii() {
         return "A";
-    }
-
-
-    move(dx, dy) {
-        this.x += dx;
-        this.y += dy;
     }
 }

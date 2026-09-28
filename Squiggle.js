@@ -1,17 +1,22 @@
 // A string of random letters from Squiggle.CHARACTERS, starting
 // right next to the player and growing to the right while "D" is
-// held (see startSquiggle()/growSquiggle()/stopSquiggle() in
-// game.js). Each letter sits one column right of the last; the
-// row only changes every DY_STEP_EVERY letters, and the whole
-// string is re-rolled every time it grows - see generate(). Purely decorative -
-// nothing collides with it, so it doesn't interfere with combat.
-// Glued to the player via getters, like Sword/Shield.
+// held (see startSquiggle()/stopSquiggle() in game.js). Each letter
+// sits one column right of the last; the row only changes every
+// DY_STEP_EVERY letters, and the whole string is re-rolled every
+// time it grows - see generate(). Purely decorative - nothing
+// collides with it, so it doesn't interfere with combat. Glued to
+// the player via getters, like Sword/Shield.
 class Squiggle {
 
     static CHARACTERS = "=-~+";
 
     // The row may only change on every Nth letter.
     static DY_STEP_EVERY = 2;
+
+    // Grows one letter every GROW_INTERVAL ms, up to MAX_LENGTH
+    // letters; at full length it keeps being re-rolled every tick.
+    static GROW_INTERVAL = 5;
+    static MAX_LENGTH = 20;
 
 
     constructor(player) {
@@ -21,6 +26,22 @@ class Squiggle {
         // One entry per letter, in order: its row offset from the
         // player and its character.
         this.segments = [];
+
+        // Time accumulated toward the next letter.
+        this.growTime = 0;
+    }
+
+
+    // Adds however many letters GROW_INTERVAL allows for this tick
+    // (the interval is shorter than a tick), re-rolling the whole
+    // string once - or just re-rolls it at full length.
+    update(dt) {
+        this.growTime += dt;
+
+        const letters = Math.floor(this.growTime / Squiggle.GROW_INTERVAL);
+        this.growTime -= letters * Squiggle.GROW_INTERVAL;
+
+        this.generate(Math.min(this.segments.length + letters, Squiggle.MAX_LENGTH));
     }
 
 

@@ -1,52 +1,48 @@
 // Walks back and forth along a fixed row between minX and maxX,
-// reversing direction at either end, until the player shares its
-// row - then it stops patrolling and closes in on the player
-// instead, slowly accelerating (see step()). Movement isn't driven
-// by player input - see the patrol timer in the game section.
-class Enemy {
+// reversing direction at either end, until its target (the player)
+// shares its row - then it stops patrolling and closes in on the
+// target instead, slowly accelerating. update() only decides the
+// enemy's velocity once per game tick; the MovementSystem moves it.
+class Enemy extends MovingObject {
 
-    // Closing-in speed, in cells per tick (may be fractional - a
-    // hidden sub-cell offset accumulates it, like Push). Starts at
+    // Closing-in speed, in cells per second. Starts at
     // APPROACH_START_SPEED and grows by APPROACH_ACCELERATION every
-    // tick, up to APPROACH_MAX_SPEED.
-    static APPROACH_START_SPEED = 0.5;
-    static APPROACH_ACCELERATION = 0.25;
-    static APPROACH_MAX_SPEED = 2;
+    // second, up to APPROACH_MAX_SPEED.
+    static APPROACH_START_SPEED = 1.25;
+    static APPROACH_ACCELERATION = 1.5625;
+    static APPROACH_MAX_SPEED = 5;
 
-    // Speed while patrolling - its fixed one-cell step per tick.
-    static PATROL_SPEED = 1;
+    // Speed while patrolling, in cells per second.
+    static PATROL_SPEED = 2.5;
+
+    // The enemy has no input to fight a push with, so it recovers on
+    // its own: loses PUSH_RECOVER_AMOUNT (cells per second) of push
+    // speed every PUSH_RECOVER_INTERVAL ms.
+    static PUSH_RECOVER_INTERVAL = 500;
+    static PUSH_RECOVER_AMOUNT = 5;
 
 
-    constructor(x, y, minX, maxX) {
-        this.x = x;
-        this.y = y;
-        this.z = 15;
+    constructor(x, y, minX, maxX, target) {
+        super(x, y, 15);
 
         this.minX = minX;
         this.maxX = maxX;
 
+        this.target = target;
+
         this.direction = 1;
 
-        // Current closing-in speed and sub-cell offset, 0 while not
-        // approaching - see approach()/resetApproach().
+        // Current closing-in speed, 0 while not approaching.
         this.approachSpeed = 0;
-        this.approachOffset = 0;
 
-        // Knockback - see Push.js and the "Push" section in
-        // game.js for how this is driven.
-        this.push = new Push();
-
-        // Drawn sword, or null when not out. Set/cleared by
-        // drawEnemySword()/sheathEnemySword() in game.js, which
-        // also add/remove it from the renderer. swordReadyAt is the
-        // performance.now() time before which it won't draw again.
+        // Drawn sword, or null when not out. Set by drawEnemySword()
+        // in game.js, cleared by EnemySword.sheathe(). The enemy won't
+        // draw again until swordCooldown (ms) has run down to 0.
         this.sword = null;
-        this.swordReadyAt = 0;
+        this.swordCooldown = 0;
 
         // Flips to false once knocked into the environment/border
-        // - see vanishEnemy() in game.js. A dead enemy is removed
-        // from the renderer, so nothing here reads this directly,
-        // but game.js checks it before touching the enemy further.
+        // - see vanishEnemy() in game.js.
         this.alive = true;
     }
 
@@ -56,80 +52,112 @@ class Enemy {
     }
 
 
-    // How fast the enemy is currently moving under its own power -
-    // what a collision reaction uses as "the enemy's speed".
+    // How fast the enemy is currently moving under its own power,
+    // in cells per second - what a collision reaction uses as "the
+    // enemy's speed".
     get speed() {
         return this.approachSpeed > 0 ? this.approachSpeed : Enemy.PATROL_SPEED;
     }
 
 
-    // Advances one tick. While being pushed, the driving loop in
-    // game.js moves the enemy directly - step() leaves it alone.
-    // Otherwise: if the player is on the same row, combat mode -
-    // face and close in on the player instead of patrolling; the
-    // two sides meeting triggers checkEnemyEncounter() in game.js.
-    // Off that row, resume the normal left/right patrol.
-    step(player) {
-
-        if (this.push.active()) {
-            this.resetApproach();
-            return;
-        }
-
-        if (player && player.y === this.y) {
-            this.approach(player);
-            return;
-        }
-
-        this.resetApproach();
-
-        this.x += this.direction;
-
-        if (this.x >= this.maxX) {
-            this.x = this.maxX;
-            this.direction = -1;
-        }
-        else if (this.x <= this.minX) {
-            this.x = this.minX;
-            this.direction = 1;
-        }
+    // Same row as the target - combat mode.
+    isChasing() {
+        return this.target && this.target.y === this.y;
     }
 
 
-    // One closing-in tick: speed up, then move by however many
-    // whole cells the smooth position crossed - never past the
-    // player, so it stops right on them.
-    approach(player) {
+    // One game tick of decision making. While being pushed, the
+    // push alone moves the enemy, and it slowly recovers from it.
+    // Otherwise: in combat mode, face and close in on the target;
+    // off its row, patrol.
+    update(dt) {
 
-        if (this.x === player.x) {
+        this.swordCooldown = Math.max(0, this.swordCooldown - dt);
+
+        if (this.push.active()) {
+            this.stopApproach();
+            this.mover.setVelocity(0, 0);
+
+            this.push.recoverOverTime(
+                dt,
+                Enemy.PUSH_RECOVER_INTERVAL,
+                Enemy.PUSH_RECOVER_AMOUNT
+            );
             return;
         }
 
-        const direction = player.x < this.x ? -1 : 1;
+        if (this.isChasing()) {
+            this.approach(dt);
+            return;
+        }
+
+        this.patrol();
+    }
+
+
+    // Speeds up toward the target - it stops right on the target
+    // (see allowsStep()), which is what triggers an encounter.
+    approach(dt) {
+
+        if (this.x === this.target.x) {
+            this.mover.setVelocity(0, 0);
+            return;
+        }
+
+        const direction = this.target.x < this.x ? -1 : 1;
 
         // Turning around starts the run-up from scratch.
         if (direction !== this.direction) {
-            this.resetApproach();
+            this.stopApproach();
             this.direction = direction;
         }
 
         this.approachSpeed = Math.min(
-            Math.max(this.approachSpeed + Enemy.APPROACH_ACCELERATION, Enemy.APPROACH_START_SPEED),
+            Math.max(
+                this.approachSpeed + Enemy.APPROACH_ACCELERATION * dt / 1000,
+                Enemy.APPROACH_START_SPEED
+            ),
             Enemy.APPROACH_MAX_SPEED
         );
 
-        this.approachOffset += this.approachSpeed;
-
-        const cells = Math.trunc(this.approachOffset);
-        this.approachOffset -= cells;
-
-        const distance = Math.abs(player.x - this.x);
-        this.x += this.direction * Math.min(cells, distance);
+        this.mover.setVelocity(this.direction * this.approachSpeed, 0);
     }
 
 
-    resetApproach() {
+    patrol() {
+
+        this.stopApproach();
+
+        if (this.x >= this.maxX) {
+            this.direction = -1;
+        }
+        else if (this.x <= this.minX) {
+            this.direction = 1;
+        }
+
+        this.mover.setVelocity(this.direction * Enemy.PATROL_SPEED, 0);
+    }
+
+
+    stopApproach() {
+
+        if (this.approachSpeed === 0) {
+            return;
+        }
+
         this.approachSpeed = 0;
-        this.approachOffset = 0;
+        this.mover.resetOffset();
+    }
+
+
+    // Movement rule for the enemy's own steps (not pushes): while
+    // chasing, it never moves past the target.
+    allowsStep(x) {
+
+        if (!this.isChasing()) {
+            return true;
+        }
+
+        return (x - this.target.x) * this.direction <= 0;
     }
 }

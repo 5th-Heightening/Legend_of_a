@@ -12,26 +12,67 @@ const renderer = new AsciiRenderer(
 
 
 // ==================================================
+// Game loop
+//
+// Everything advances on one shared, fixed tick (see GameLoop.js):
+// player input, enemy AI, movement, weapon timers, hit checks,
+// particles. The screen is drawn once, at the end of each tick.
+// All durations in the game are counted in these ticks, so the same
+// situation always plays out the same way.
+// ==================================================
+
+const TICK_INTERVAL = 40;
+
+// Every game object that's in play (drawn and updated each tick),
+// and everything that moves on the grid.
+const world = new World(renderer);
+const movement = new MovementSystem();
+
+
+// The order of one tick:
+// 1. input - the arrow keys pressed/held since the last tick
+// 2. objects - enemy AI, weapon timers, particles, ...
+// 3. movement - everything that moves, one cell at a time
+// 4. combat - enemy sword, player/enemy encounter
+// 5. draw
+function tick(dt) {
+
+    if (gameStarted) {
+        playerController.update(dt);
+    }
+
+    world.update(dt);
+
+    if (gameStarted) {
+        movement.update(dt);
+        updateEnemySword();
+        checkEnemyEncounter();
+    }
+
+    renderer.render();
+}
+
+
+const loop = new GameLoop(TICK_INTERVAL, tick);
+
+
+// ==================================================
 // Title screen
 // ==================================================
+
+const TITLE_BLINK_INTERVAL = 500;
 
 const splash = new SplashScreen();
 splash.x = 0;
 splash.y = 4;
 
-const pressAnyKey = new BlinkingText(14, 15, "Press any key");
+const pressAnyKey = new BlinkingText(14, 15, "Press any key", TITLE_BLINK_INTERVAL);
 
 
-renderer.add(splash);
-renderer.add(pressAnyKey);
+world.add(splash);
+world.add(pressAnyKey);
 
-renderer.render();
-
-
-const blinkTimer = setInterval(() => {
-    pressAnyKey.visible = !pressAnyKey.visible;
-    renderer.render();
-}, 500);
+let gameStarted = false;
 
 
 // ==================================================
@@ -40,9 +81,9 @@ const blinkTimer = setInterval(() => {
 
 const ground = new Ground();
 const player = new Player(15, 10);
+const playerController = new PlayerController(player);
 
-const enemy = new Enemy(5, 12, 5, 35);
-const ENEMY_STEP_INTERVAL = 400;
+const enemy = new Enemy(5, 12, 5, 35, player);
 
 const tree = new Tree({
     topLeft: { x: 3, y: 3 },
@@ -68,11 +109,6 @@ const PLAYER_MIN_X = 0;
 const PLAYER_MAX_X = renderer.width - 1;
 const PLAYER_MIN_Y = 0;
 const PLAYER_MAX_Y = renderer.height - 1;
-
-
-function clamp(value, min, max) {
-    return Math.max(min, Math.min(max, value));
-}
 
 
 // Normalized (0..1) position of a player coordinate between
@@ -142,35 +178,94 @@ function wouldCollideAt(px, py) {
 }
 
 
+// Could the enemy stand at (x, y) - inside the display and clear
+// of all scenery? Scenery is checked where it's currently drawn;
+// the player moves before the enemy, and every player step updates
+// the parallax right away (see the player's movement rules).
+function enemyFitsAt(x, y) {
+
+    if (x < 0 || x >= renderer.width) {
+        return false;
+    }
+
+    const enemyProbe = makeCollisionProbe(enemy, x, y);
+
+    for (const object of parallaxObjects) {
+        if (renderer.objectsCollide(enemyProbe, object)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+
+// ==================================================
+// Movement rules
+//
+// The MovementSystem (see MovementSystem.js) moves both, one cell at
+// a time, in this order - the player first.
+//
+// - Player: stays inside the viewport and is blocked by scenery,
+//   whether walking or pushed. Every step shifts the parallax.
+// - Enemy: its own steps follow Enemy.allowsStep() (never past the
+//   player while chasing). A push that would carry it off the
+//   display or into scenery kills it instead - see vanishEnemy().
+//
+// Both leave a trace of particles behind while pushed.
+// ==================================================
+
+function registerMovement() {
+
+    movement.add(player, {
+
+        canEnter: (x, y) =>
+            x >= PLAYER_MIN_X && x <= PLAYER_MAX_X &&
+            y >= PLAYER_MIN_Y && y <= PLAYER_MAX_Y &&
+            !wouldCollideAt(x, y),
+
+        onMoved: (fromX, fromY) => {
+            if (player.push.active()) {
+                leavePushTrace(fromX, fromY);
+            }
+
+            updateParallax();
+        }
+    });
+
+    movement.add(enemy, {
+
+        canEnter: (x, y) =>
+            enemy.push.active() ? enemyFitsAt(x, y) : enemy.allowsStep(x),
+
+        onBlocked: () => {
+            if (enemy.push.active()) {
+                vanishEnemy();
+            }
+        },
+
+        onMoved: (fromX, fromY) => {
+            if (enemy.push.active()) {
+                leavePushTrace(fromX, fromY);
+            }
+        }
+    });
+}
+
+
 function startGame() {
 
-    clearInterval(blinkTimer);
+    world.remove(splash);
+    world.remove(pressAnyKey);
 
-    renderer.remove(splash);
-    renderer.remove(pressAnyKey);
+    world.add(ground);
+    world.add(mountain);
+    world.add(tree);
+    world.add(enemy);
+    world.add(player);
 
-    renderer.add(ground);
-    renderer.add(mountain);
-    renderer.add(tree);
-    renderer.add(enemy);
-    renderer.add(player);
-
+    registerMovement();
     updateParallax();
-    renderer.render();
-
-    setInterval(() => {
-
-        if (!enemy.alive) {
-            return;
-        }
-
-        const enemyFromX = enemy.x;
-
-        enemy.step(player);
-        updateEnemySword();
-        checkEnemyEncounter(player.x, enemyFromX);
-        renderer.render();
-    }, ENEMY_STEP_INTERVAL);
 }
 
 
@@ -187,21 +282,8 @@ function swingSword() {
         return;
     }
 
-    player.sword = new Sword(player);
-    renderer.add(player.sword);
-    renderer.render();
-
-    setTimeout(() => {
-        player.sword.frame = "dash";
-        renderer.render();
-
-        setTimeout(() => {
-            renderer.remove(player.sword);
-            player.sword = null;
-            renderer.render();
-        }, SWORD_FRAME_DURATION);
-
-    }, SWORD_FRAME_DURATION);
+    player.sword = new Sword(player, SWORD_FRAME_DURATION);
+    world.add(player.sword);
 }
 
 
@@ -212,8 +294,7 @@ function showShield() {
     }
 
     player.shield = new Shield(player);
-    renderer.add(player.shield);
-    renderer.render();
+    world.add(player.shield);
 }
 
 
@@ -223,9 +304,8 @@ function hideShield() {
         return;
     }
 
-    renderer.remove(player.shield);
+    world.remove(player.shield);
     player.shield = null;
-    renderer.render();
 }
 
 
@@ -244,8 +324,8 @@ const ENEMY_SWORD_DURATION = 1200;
 const ENEMY_SWORD_COOLDOWN = 800;
 
 
-// Called every enemy tick - draws the sword if the enemy is in
-// range, able to fight and not still cooling down.
+// Called every tick - draws the sword if the enemy is in range,
+// able to fight and not still cooling down.
 function updateEnemySword() {
 
     if (!enemy.alive || enemy.sword || enemy.push.active()) {
@@ -260,55 +340,29 @@ function updateEnemySword() {
         return;
     }
 
-    if (performance.now() < enemy.swordReadyAt) {
+    if (enemy.swordCooldown > 0) {
         return;
     }
 
-    drawEnemySword();
-}
-
-
-function drawEnemySword() {
-
-    enemy.sword = new EnemySword(enemy);
-    renderer.add(enemy.sword);
-    renderer.render();
-
-    setTimeout(sheathEnemySword, ENEMY_SWORD_DURATION);
-}
-
-
-function sheathEnemySword() {
-
-    if (!enemy.sword) {
-        return;
-    }
-
-    renderer.remove(enemy.sword);
-    enemy.sword = null;
-    enemy.swordReadyAt = performance.now() + ENEMY_SWORD_COOLDOWN;
-    renderer.render();
+    enemy.sword = new EnemySword(enemy, ENEMY_SWORD_DURATION, ENEMY_SWORD_COOLDOWN);
+    world.add(enemy.sword);
 }
 
 
 // ==================================================
 // Push: knockback from running into the enemy
 //
-// Both player and enemy carry a Push (see Push.js): a speed
-// (cells per tick, may be fractional - a hidden sub-cell offset
-// accumulates it and only whole cells crossed actually move
-// anyone) and a direction, away from the other side. The
-// player's only goes down by pressing an arrow key (see the
-// keydown handler); the enemy has no input to fight it with, so
-// it recovers on its own instead - ENEMY_PUSH_RECOVER_AMOUNT
-// speed every ENEMY_PUSH_RECOVER_INTERVAL - unless it hits the
-// border/environment first (vanishing there, see
-// stepEnemyPush()).
+// Both player and enemy carry a Push (see Push.js, via their Mover):
+// a speed in cells per second and a direction, away from the other
+// side. The player's only goes down by pressing an arrow key (see
+// PlayerController.js); the enemy recovers on its own instead (see
+// Enemy.update()) - unless it hits the border/environment first,
+// vanishing there (see the enemy's movement rules).
 //
-// Combat resolution, decided by both sides' weapons at the
-// moment of collision. The enemy's speed is its current approach
-// speed (enemy.speed); the player's is PLAYER_SWORD_SPEED, the
-// force of its swing:
+// Combat resolution, decided by both sides' weapons at the moment
+// of collision. The enemy's speed is its current approach speed
+// (enemy.speed); the player's is PLAYER_SWORD_SPEED, the force of
+// its swing:
 // - shield up: a reflector - the player takes nothing, the
 //   enemy bounces off with PUSH_INITIAL_SPEED
 // - both swords drawn: an exchange - each side is knocked back
@@ -323,8 +377,9 @@ function sheathEnemySword() {
 // once (blocking takes priority over attacking).
 // ==================================================
 
-const PUSH_INITIAL_SPEED = 3;
-const PLAYER_SWORD_SPEED = 3;
+// Cells per second.
+const PUSH_INITIAL_SPEED = 15;
+const PLAYER_SWORD_SPEED = 15;
 
 // Burst spawned where the player and enemy collide, and the
 // (slower) speed of the trace particles a pushed player/enemy
@@ -332,90 +387,47 @@ const PLAYER_SWORD_SPEED = 3;
 const COLLISION_PARTICLE_COUNT = 3;
 const TRACE_PARTICLE_SPEED = 1;
 const TRACE_PARTICLE_DENSITY = .5;
-const PUSH_STEP_INTERVAL = 200;
-
-// How many recovery keypresses it takes to shave 1 off the
-// player's push speed. Higher = slower to recover from a push.
-const PUSH_RECOVER_PRESSES_PER_POINT = 1;
-
-// How much one held-arrow tick (every PLAYER_MOVE_INTERVAL while
-// the key stays down) counts toward recovery, compared to a fresh
-// press (1). Lower = holding recovers slower, so tapping is the
-// way to recover quickly.
-const PUSH_RECOVER_HOLD_WEIGHT = 0.25;
-
-// The enemy's self-recovery from a push: loses
-// ENEMY_PUSH_RECOVER_AMOUNT speed every ENEMY_PUSH_RECOVER_INTERVAL ms.
-const ENEMY_PUSH_RECOVER_INTERVAL = 500;
-const ENEMY_PUSH_RECOVER_AMOUNT = 1;
 
 
 // Removes the enemy for good - called once a push carries it
-// into the border or the environment. Its own push is stopped
-// too, so a stale reference can't keep nudging a dead enemy.
+// into the border or the environment.
 function vanishEnemy() {
     enemy.alive = false;
     enemy.push.stop();
-    sheathEnemySword();
-    renderer.remove(enemy);
+
+    if (enemy.sword) {
+        const sword = enemy.sword;
+        sword.sheathe();
+        world.remove(sword);
+    }
+
+    world.remove(enemy);
+    movement.remove(enemy);
 }
 
 
-// Moves the enemy by `cells` (from enemy.push.step()). Unlike the
-// player, the enemy isn't clamped to the viewport - it can fly
-// straight off the display - but the moment it would leave the
-// display, or its new spot overlaps any scenery, it vanishes
-// instead of landing there.
-function stepEnemyPush(cells) {
-
-    const nextX = enemy.x + cells;
-
-    if (nextX < 0 || nextX >= renderer.width) {
-        vanishEnemy();
-        return;
-    }
-
-    const enemyProbe = makeCollisionProbe(enemy, nextX, enemy.y);
-
-    for (const object of parallaxObjects) {
-        if (renderer.objectsCollide(enemyProbe, object)) {
-            vanishEnemy();
-            return;
-        }
-    }
-
-    enemy.x = nextX;
-}
-
-
-// Trace left behind by a push: on every cell between fromX
-// (inclusive) and toX (exclusive) - the cells the push just
-// carried its owner out of - spawns one slow particle with
-// probability TRACE_PARTICLE_DENSITY.
-function spawnPushTrail(fromX, toX, y) {
-
-    const step = Math.sign(toX - fromX);
-
-    for (let x = fromX; x !== toX; x += step) {
-        if (Math.random() < TRACE_PARTICLE_DENSITY) {
-            spawnParticles(x, y, 1, TRACE_PARTICLE_SPEED, false);
-        }
+// Trace left behind by a push: on the cell the push just carried
+// its owner out of, spawns one slow particle with probability
+// TRACE_PARTICLE_DENSITY.
+function leavePushTrace(x, y) {
+    if (Math.random() < TRACE_PARTICLE_DENSITY) {
+        spawnParticles(x, y, 1, TRACE_PARTICLE_SPEED, false);
     }
 }
 
 
-// Only fires when neither side is already mid-push - otherwise
-// every tick of overlap would refresh it to full speed and
-// neither would ever finish recovering/flying apart.
+// Checked once per tick, after everything has moved. Only fires when
+// neither side is already mid-push - otherwise every tick of overlap
+// would refresh it to full speed and neither would ever finish
+// recovering/flying apart.
 //
-// playerFromX/enemyFromX are where the two stood *before* the
-// move that may have brought them together - a collision means
-// they share a cell, so only their previous positions tell which
-// side each came from. Everything directional follows from that
-// one `enemySide`: who is pushed which way, and whether each
-// side's weapon actually faces the other (a shield on the back
+// A collision means both share a cell, so only where they stood
+// *before* this tick's movement (previousX, see MovingObject.js)
+// tells which side each came from. Everything directional follows
+// from that one `enemySide`: who is pushed which way, and whether
+// each side's weapon actually faces the other (a shield on the back
 // doesn't block, a sword pointing away doesn't hit).
-function checkEnemyEncounter(playerFromX = player.x, enemyFromX = enemy.x) {
+function checkEnemyEncounter() {
 
     if (!enemy.alive) {
         return;
@@ -436,7 +448,7 @@ function checkEnemyEncounter(playerFromX = player.x, enemyFromX = enemy.x) {
     // Which side of the player the enemy came from (-1 left,
     // 1 right). Same previous column (the player stepped into the
     // enemy's row from above/below) - the enemy counts as in front.
-    const enemySide = Math.sign(enemyFromX - playerFromX) || playerFacing;
+    const enemySide = Math.sign(enemy.previousX - player.previousX) || playerFacing;
 
     const awayFromEnemy = -enemySide;
     const awayFromPlayer = enemySide;
@@ -449,82 +461,34 @@ function checkEnemyEncounter(playerFromX = player.x, enemyFromX = enemy.x) {
     const enemySword = enemy.sword && enemyFacesPlayer;
 
     if (shield) {
-        enemy.push.start(awayFromPlayer, PUSH_INITIAL_SPEED);
+        enemy.mover.startPush(awayFromPlayer, PUSH_INITIAL_SPEED);
     }
     else if (playerSword && enemySword) {
-        player.push.start(awayFromEnemy, enemy.speed);
-        enemy.push.start(awayFromPlayer, PLAYER_SWORD_SPEED);
+        player.mover.startPush(awayFromEnemy, enemy.speed);
+        enemy.mover.startPush(awayFromPlayer, PLAYER_SWORD_SPEED);
     }
     else if (playerSword) {
-        enemy.push.start(awayFromPlayer, PLAYER_SWORD_SPEED + enemy.speed);
+        enemy.mover.startPush(awayFromPlayer, PLAYER_SWORD_SPEED + enemy.speed);
     }
     else if (enemySword) {
-        player.push.start(awayFromEnemy, PUSH_INITIAL_SPEED + enemy.speed);
+        player.mover.startPush(awayFromEnemy, PUSH_INITIAL_SPEED + enemy.speed);
     }
     else {
-        player.push.start(awayFromEnemy, PUSH_INITIAL_SPEED);
+        player.mover.startPush(awayFromEnemy, PUSH_INITIAL_SPEED);
     }
 }
-
-
-setInterval(() => {
-
-    let moved = false;
-
-    // Push.step() advances the hidden smooth position and says how
-    // many whole cells were crossed - only those move the owner.
-    if (player.push.active()) {
-        const cells = player.push.step();
-
-        if (cells !== 0) {
-            const startX = player.x;
-            player.x = clamp(player.x + cells, PLAYER_MIN_X, PLAYER_MAX_X);
-            spawnPushTrail(startX, player.x, player.y);
-            moved = true;
-        }
-    }
-
-    if (enemy.alive && enemy.push.active()) {
-        const cells = enemy.push.step();
-
-        if (cells !== 0) {
-            const startX = enemy.x;
-            stepEnemyPush(cells);
-
-            // A vanished enemy never lands, so x stays put and no
-            // trail is left for that last tick.
-            spawnPushTrail(startX, enemy.x, enemy.y);
-            moved = true;
-        }
-
-        enemy.push.recoverOverTime(
-            PUSH_STEP_INTERVAL,
-            ENEMY_PUSH_RECOVER_INTERVAL,
-            ENEMY_PUSH_RECOVER_AMOUNT
-        );
-    }
-
-    if (moved) {
-        updateParallax();
-        renderer.render();
-    }
-}, PUSH_STEP_INTERVAL);
 
 
 // ==================================================
 // Particles
 //
-// Every live Particle (see Particle.js) sits in `particles` and
-// in the renderer. One shared loop advances them all by the real
-// time elapsed since the last tick, and drops any that have run
-// out of characters from both lists.
+// Particles (see Particle.js) are ordinary world objects: updated
+// every tick, and dropped by the world once they've run out of
+// characters.
 // ==================================================
 
-const PARTICLE_STEP_INTERVAL = 50;
 const PARTICLE_GRAVITATION = 10;
 const PARTICLE_SPEED = 6;
-
-const particles = [];
 
 
 // Spawns `count` particles at (x, y), each flying off in its own
@@ -532,60 +496,18 @@ const particles = [];
 function spawnParticles(x, y, count, speed = PARTICLE_SPEED, gravitation = true) {
 
     for (let i = 0; i < count; i++) {
-        const particle = new Particle(x, y, speed, gravitation);
-
-        particles.push(particle);
-        renderer.add(particle);
+        world.add(new Particle(x, y, speed, gravitation));
     }
-
-    renderer.render();
 }
-
-
-let lastParticleTick = performance.now();
-
-setInterval(() => {
-
-    const now = performance.now();
-    const dt = now - lastParticleTick;
-    lastParticleTick = now;
-
-    if (particles.length === 0) {
-        return;
-    }
-
-    // Iterate backwards so splicing out dead particles doesn't
-    // skip the next one.
-    for (let i = particles.length - 1; i >= 0; i--) {
-        const particle = particles[i];
-
-        particle.update(dt);
-
-        if (!particle.alive) {
-            renderer.remove(particle);
-            particles.splice(i, 1);
-        }
-    }
-
-    renderer.render();
-}, PARTICLE_STEP_INTERVAL);
 
 
 // ==================================================
 // Squiggle (D, held)
 //
 // Decorative only - a string of random letters (see Squiggle.js)
-// grows from the player one letter every SQUIGGLE_GROW_INTERVAL
-// ms while "D" is held, up to SQUIGGLE_MAX_LENGTH letters, then
-// keeps being re-rolled at that length every tick. It vanishes on
-// release. Nothing collides with it.
+// grows from the player while "D" is held and vanishes on release.
+// Nothing collides with it.
 // ==================================================
-
-const SQUIGGLE_GROW_INTERVAL = 5;
-const SQUIGGLE_MAX_LENGTH = 20;
-
-let squiggleTimer = null;
-
 
 function startSquiggle() {
 
@@ -594,30 +516,8 @@ function startSquiggle() {
     }
 
     player.squiggle = new Squiggle(player);
-    renderer.add(player.squiggle);
-
-    growSquiggle();
-    squiggleTimer = setInterval(growSquiggle, SQUIGGLE_GROW_INTERVAL);
-}
-
-
-// Grows the squiggle by one letter, or - once it's at full
-// length - re-rolls it at that length, so it keeps flickering
-// for as long as "D" is held.
-function growSquiggle() {
-
-    if (!player.squiggle) {
-        return;
-    }
-
-    if (player.squiggle.length >= SQUIGGLE_MAX_LENGTH) {
-        player.squiggle.generate(SQUIGGLE_MAX_LENGTH);
-    }
-    else {
-        player.squiggle.grow();
-    }
-
-    renderer.render();
+    player.squiggle.grow();
+    world.add(player.squiggle);
 }
 
 
@@ -627,20 +527,19 @@ function stopSquiggle() {
         return;
     }
 
-    clearInterval(squiggleTimer);
-    squiggleTimer = null;
-
-    renderer.remove(player.squiggle);
+    world.remove(player.squiggle);
     player.squiggle = null;
-    renderer.render();
 }
 
 
 // ==================================================
-// Input: title screen -> game, then move the player
+// Input: title screen -> game, then play
+//
+// The key handlers only record input - arrow keys go to the
+// PlayerController, which acts on them on the next tick. Weapons are
+// created right away, but they too only count (and show) from the
+// next tick on.
 // ==================================================
-
-let gameStarted = false;
 
 document.addEventListener("keydown", event => {
 
@@ -673,8 +572,8 @@ document.addEventListener("keydown", event => {
         return;
     }
 
-    if (event.key in ARROW_DIRECTIONS) {
-        pressArrow(event.key, event.repeat);
+    if (playerController.handles(event.key)) {
+        playerController.press(event.key, event.repeat);
     }
 });
 
@@ -691,123 +590,14 @@ document.addEventListener("keyup", event => {
         stopSquiggle();
     }
 
-    if (event.key in ARROW_DIRECTIONS) {
-        releaseArrow(event.key);
+    if (playerController.handles(event.key)) {
+        playerController.release(event.key);
     }
 });
 
 
-// Focus leaving the page means no keyup will arrive for keys
-// still held - drop them, so the player doesn't keep walking.
-window.addEventListener("blur", releaseAllArrows);
+window.addEventListener("blur", () => playerController.releaseAll());
 
 
-// ==================================================
-// Player movement (arrow keys, held)
-//
-// The OS key auto-repeat (one step, a pause, then fast repeats)
-// is ignored. Instead, the first press of an arrow moves one
-// step right away, and a timer keeps stepping every
-// PLAYER_MOVE_INTERVAL ms for as long as it's held. With several
-// arrows held, the most recently pressed one wins; releasing it
-// falls back to the next one still held.
-// ==================================================
-
-const PLAYER_MOVE_INTERVAL = 120;
-
-const ARROW_DIRECTIONS = {
-    ArrowUp: { dx: 0, dy: -1 },
-    ArrowDown: { dx: 0, dy: 1 },
-    ArrowLeft: { dx: -1, dy: 0 },
-    ArrowRight: { dx: 1, dy: 0 }
-};
-
-// Arrow keys currently held, in press order - the last one is
-// the direction being walked.
-const heldArrows = [];
-
-let moveTimer = null;
-
-
-function pressArrow(key, isRepeat) {
-
-    if (isRepeat || heldArrows.includes(key)) {
-        return;
-    }
-
-    heldArrows.push(key);
-
-    // Restart the timer so the new direction gets a full interval
-    // before its second step, same as a fresh press.
-    clearInterval(moveTimer);
-    stepPlayer(true);
-    moveTimer = setInterval(() => stepPlayer(false), PLAYER_MOVE_INTERVAL);
-}
-
-
-function releaseArrow(key) {
-
-    const index = heldArrows.indexOf(key);
-
-    if (index !== -1) {
-        heldArrows.splice(index, 1);
-    }
-
-    if (heldArrows.length === 0) {
-        clearInterval(moveTimer);
-        moveTimer = null;
-    }
-}
-
-
-function releaseAllArrows() {
-    heldArrows.length = 0;
-    clearInterval(moveTimer);
-    moveTimer = null;
-}
-
-
-// One movement step in the direction of the most recently
-// pressed, still-held arrow. isFreshPress is true for the step
-// right on keydown, false for the held-key timer's steps.
-function stepPlayer(isFreshPress) {
-
-    const key = heldArrows[heldArrows.length - 1];
-
-    if (!key) {
-        return;
-    }
-
-    const { dx, dy } = ARROW_DIRECTIONS[key];
-
-    if (dx !== 0) {
-        player.facing = dx < 0 ? "left" : "right";
-    }
-
-    // While reeling from a push, arrow keys don't move the
-    // player - they only fight the knockback, chipping away at
-    // it PUSH_RECOVER_PRESSES_PER_POINT presses per point of speed.
-    // Holding an arrow only counts PUSH_RECOVER_HOLD_WEIGHT of a
-    // press per tick, so tapping recovers much faster.
-    if (player.push.active()) {
-        const weight = isFreshPress ? 1 : PUSH_RECOVER_HOLD_WEIGHT;
-        player.push.recoverStep(PUSH_RECOVER_PRESSES_PER_POINT, weight);
-        renderer.render();
-        return;
-    }
-
-    const playerFromX = player.x;
-
-    const targetX = clamp(player.x + dx, PLAYER_MIN_X, PLAYER_MAX_X);
-    const targetY = clamp(player.y + dy, PLAYER_MIN_Y, PLAYER_MAX_Y);
-
-    if (!wouldCollideAt(targetX, targetY)) {
-        player.x = targetX;
-        player.y = targetY;
-    }
-
-    checkEnemyEncounter(playerFromX, enemy.x);
-
-    updateParallax();
-    renderer.render();
-}
+// Last, once everything above exists.
+loop.start();

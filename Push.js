@@ -1,21 +1,17 @@
-// Knockback state shared by the player and the enemy: a speed
-// (cells per tick, horizontal only, may be fractional) and a
-// direction (-1/1). speed of 0 means not currently pushed. Whoever
-// owns an instance (Player, Enemy) just holds it - actually moving
-// the owner each tick, and deciding what a collision while pushed
-// means, is done by the driving loop in game.js.
+// Knockback state, one per Mover (see Mover.js): a speed (cells per
+// second, horizontal only, may be fractional) and a direction
+// (-1/1). speed of 0 means not currently pushed. Push only holds the
+// knockback and how it wears off - actually moving the owner is the
+// Mover's job, and deciding what a collision while pushed means is
+// done in game.js.
 class Push {
 
     constructor() {
         this.speed = 0;
         this.direction = 0;
 
-        // Hidden sub-cell position relative to the owner's actual
-        // cell, always in (-1, 1) - see step().
-        this.offset = 0;
-
-        // Recovery keypresses accumulated toward shaving 1 off
-        // speed - see recoverStep().
+        // Recovery keypresses accumulated toward shaving speed off -
+        // see recoverStep().
         this.recoverProgress = 0;
 
         // Milliseconds accumulated toward shaving speed off - see
@@ -29,10 +25,15 @@ class Push {
     }
 
 
+    // Signed speed in cells per second, 0 while not pushed.
+    get velocity() {
+        return this.active() ? this.direction * this.speed : 0;
+    }
+
+
     start(direction, speed) {
         this.direction = direction;
         this.speed = speed;
-        this.offset = 0;
         this.recoverProgress = 0;
         this.recoverTime = 0;
     }
@@ -41,38 +42,22 @@ class Push {
     stop() {
         this.speed = 0;
         this.direction = 0;
-        this.offset = 0;
         this.recoverProgress = 0;
         this.recoverTime = 0;
     }
 
 
-    // Advances the smooth position by one tick's worth of speed
-    // and returns the signed number of whole cells crossed - the
-    // amount the owner should actually move this tick. The
-    // fractional rest is kept for the next tick, so e.g. speed 0.5
-    // moves one cell every other tick.
-    step() {
-        this.offset += this.direction * this.speed;
-
-        const cells = Math.trunc(this.offset);
-        this.offset -= cells;
-
-        return cells;
-    }
-
-
     // One recovery keypress. Once pressesPerPoint of these have
-    // accumulated, shaves 1 off speed and resets the counter -
+    // accumulated, shaves `amount` off speed and resets the counter -
     // stop()s outright once speed bottoms out.
     // `weight` is how much this press counts - 1 for a real press,
     // less for weaker input (e.g. a held key's repeat tick).
-    recoverStep(pressesPerPoint, weight = 1) {
+    recoverStep(pressesPerPoint, weight, amount) {
         this.recoverProgress += weight;
 
         if (this.recoverProgress >= pressesPerPoint) {
             this.recoverProgress = 0;
-            this.loseSpeed(1);
+            this.loseSpeed(amount);
         }
     }
 

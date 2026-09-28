@@ -17,14 +17,20 @@ by `SplashScreen.js`/`SpeechBubble.js` before this split:
 |---|---|
 | [Legend_of_a.html](Legend_of_a.html) | Page shell: CSS, the `<pre id="viewport">` + theme button markup, and the `<script src>` list in load order. No game logic of its own. |
 | [AsciiRenderer.js](AsciiRenderer.js) | The renderer: object list, draw loop, collision primitives (`objectsCollide`, `detectCollisions`). |
+| [GameLoop.js](GameLoop.js) | The single fixed-tick clock everything runs on — see "Game loop" below. |
+| [World.js](World.js) | Set of all objects in play: adds/removes them to/from the renderer and calls `update(dt)` on each every tick. |
 | [ParallaxObject.js](ParallaxObject.js) | Base class for scenery that shifts with the player — see "Parallax scenery" below. |
 | [Tree.js](Tree.js), [Mountain.js](Mountain.js) | Scenery pieces, both `extends ParallaxObject`. |
-| [Player.js](Player.js) | Player state: position, facing, a `push` field, and `sword`/`shield` weapon references. |
+| [Mover.js](Mover.js) | Movement state of one moving object: own velocity, queued steps, knockback (`Push`), sub-cell offset — see "Movement" below. |
+| [MovingObject.js](MovingObject.js) | Base class for everything that moves (`Player`, `Enemy`): position + a `Mover`. |
+| [MovementSystem.js](MovementSystem.js) | Moves every registered `MovingObject` once per tick, one cell at a time, against per-object rules. |
+| [Player.js](Player.js) | Player state (`extends MovingObject`): facing and `sword`/`shield` weapon references. |
+| [PlayerController.js](PlayerController.js) | Arrow-key input → player steps / push recovery, sampled once per tick. |
 | [Sword.js](Sword.js), [Shield.js](Shield.js) | Combat visuals, both take a `player` reference in their constructor. |
 | [Ground.js](Ground.js) | Background floor plane. |
-| [Enemy.js](Enemy.js) | Patrolling/combat enemy. |
+| [Enemy.js](Enemy.js) | Patrolling/combat enemy (`extends MovingObject`). |
 | [EnemySword.js](EnemySword.js) | The enemy's `-` sword, glued to the enemy — see "Enemy" below. |
-| [Push.js](Push.js) | Knockback state (speed, direction, recovery) shared by `Player` and `Enemy`. |
+| [Push.js](Push.js) | Knockback state (speed, direction, recovery), one per `Mover`. |
 | [Particle.js](Particle.js) | Short-lived drifting particle that decays through a random character sequence — see "Particles" below. |
 | [Squiggle.js](Squiggle.js) | Decorative random-letter string grown from the player while `D` is held — see "Squiggle" below. |
 | [BlinkingText.js](BlinkingText.js) | The "Press any key" title-screen prompt. |
@@ -43,19 +49,23 @@ fails at the first `new` call, not at parse time:
 
 1. `theme.js` first — independent of everything else, needs only the
    button element (already in the HTML above it).
-2. `AsciiRenderer.js`, then `ParallaxObject.js`, then `Tree.js`/
-   `Mountain.js` — in that order specifically, since `class Tree
-   extends ParallaxObject` needs `ParallaxObject` to already exist.
-3. `Push.js`, `Player.js`, `Sword.js`, `Shield.js`, `Ground.js`,
-   `Enemy.js`, `EnemySword.js`, `Squiggle.js`, `BlinkingText.js`, `SplashScreen.js` — no `extends`
-   between them, but `Push.js` has to come before `Player.js`/
-   `Enemy.js` since their constructors do `new Push()`. Otherwise
-   their relative order doesn't matter; they just all need to load
-   before `game.js`.
+2. `AsciiRenderer.js`, `GameLoop.js`, `World.js`, then
+   `ParallaxObject.js`, then `Tree.js`/`Mountain.js` — in that order
+   specifically, since `class Tree extends ParallaxObject` needs
+   `ParallaxObject` to already exist.
+3. `Push.js`, `Mover.js`, `MovingObject.js`, `MovementSystem.js`,
+   then `Player.js`, `PlayerController.js`, `Sword.js`, `Shield.js`,
+   `Ground.js`, `Enemy.js`, `EnemySword.js`, `Squiggle.js`,
+   `BlinkingText.js`, `SplashScreen.js`. `MovingObject.js` must come
+   before `Player.js`/`Enemy.js` (they `extends MovingObject`).
+   `Push.js`/`Mover.js` only need to exist by the time something is
+   constructed, but keeping them first keeps it obvious. The rest
+   just need to load before `game.js`.
 4. `game.js` last, always — it's the only file whose top-level code
    actually runs immediately (instantiating `renderer`, `player`,
-   `tree`, etc. and registering the `keydown`/`keyup` listeners), and
-   it references every class above by name.
+   `tree`, etc., registering the `keydown`/`keyup` listeners and
+   starting the game loop as its very last line), and it references
+   every class above by name.
 
 Adding a new class file just means: pick a name matching the class,
 add one `<script src>` line before `game.js` (before `Tree.js`/
@@ -109,53 +119,146 @@ Current viewport size is `41 x 18` (set where `AsciiRenderer` is
 constructed), chosen because the splash art is 40 characters wide at
 its widest line.
 
+## Game loop
+
+There is exactly one clock in the game: `loop`, a `GameLoop`
+([GameLoop.js](GameLoop.js)) that calls `tick(dt)` in
+[game.js](game.js) every `TICK_INTERVAL` (40ms). `dt` is always that
+fixed interval, never the measured real time, so every duration in
+the game (walk speed, sword swing, enemy sword window, push recovery,
+particle ageing) is counted in the same ticks, and the same situation
+always plays out the same way. There are no other `setInterval`/
+`setTimeout` calls anywhere. Anything timed keeps its own `elapsed`
+counter and advances it in `update(dt)`.
+
+One tick, in this order:
+
+1. **Input** — `playerController.update(dt)` turns the arrow keys
+   pressed/held since the last tick into a queued step or push
+   recovery (see "Player").
+2. **Objects** — `world.update(dt)`: every object in the `World`
+   ([World.js](World.js)) that has an `update(dt)` method runs it —
+   enemy AI, sword/enemy-sword timers, particles, squiggle, title
+   blink. Any object that sets `alive = false` is removed from the
+   world *and* the renderer right there.
+3. **Movement** — `movement.update(dt)` moves every `MovingObject`
+   (see "Movement" below).
+4. **Combat** — `updateEnemySword()`, then `checkEnemyEncounter()`,
+   once, after everything has moved.
+5. **Draw** — `renderer.render()`, the only render call in the game.
+
+Key handlers never move or render anything themselves. Arrow keys are
+only recorded (the controller acts on them on the next tick), and
+`W`/`A`/`D` create their objects right away, but those are drawn and
+checked from the next tick on. Input is therefore at most one tick
+(40ms) late, and always on the beat.
+
+`world.add(obj)`/`world.remove(obj)` replace direct
+`renderer.add`/`remove` calls for everything in play.
+
+## Movement
+
+Everything that moves on the grid `extends MovingObject`
+([MovingObject.js](MovingObject.js)): `x`/`y`/`z`, a `mover`, a
+`push` getter (the mover's `Push`), and `previousX`/`previousY` (where
+it stood before this tick's movement).
+
+A `Mover` ([Mover.js](Mover.js)) collects three sources of movement,
+which add up:
+
+- **Own velocity** (`setVelocity(vx, vy)`, cells per second) — set
+  every tick by whatever steers the object (the enemy AI).
+- **Queued steps** (`queueStep(dx, dy)`) — exactly one cell on the next
+  tick, for grid-exact movement like the player's walk.
+- **Push** (`startPush(direction, speed)`) — knockback, horizontal
+  only, see "Push" below.
+
+`advance(dt)` adds the velocities to a hidden sub-cell offset, takes
+off the whole cells crossed and returns them (plus any queued step).
+The fractional rest carries over to the next tick. The offset is
+reset by `resetOffset()` (turning around, being blocked) and when a
+push starts or wears off.
+
+`MovementSystem` ([MovementSystem.js](MovementSystem.js)) owns the
+list of moving objects. `movement.add(object, rules)` registers one
+with optional rules:
+
+- `canEnter(x, y)` — `false` blocks that step, drops the rest of the
+  move on that axis, and resets the mover's offset
+- `onBlocked(x, y)` — after a blocked step
+- `onMoved(fromX, fromY)` — after every cell actually moved
+
+Each tick it calls `mover.advance(dt)` and walks the object there
+**one cell at a time** (x, then y), checking `canEnter` for each
+cell. A fast push therefore can't tunnel through scenery. Objects
+move in the order they were added (the player first, then the enemy),
+and dead objects (`alive === false`) are dropped.
+
+The rules for player and enemy are set in `registerMovement()` in
+[game.js](game.js):
+
+- **Player**: stays inside the viewport and doesn't enter scenery
+  (`wouldCollideAt`, see "Movement collision"), whether walking *or*
+  pushed. Every step leaves a push trace if pushed and updates the
+  parallax.
+- **Enemy**: its own steps follow `enemy.allowsStep(x)` (never past the
+  player while chasing). While pushed, `enemyFitsAt(x, y)` checks the
+  display bounds and scenery. A blocked push step calls
+  `vanishEnemy()`.
+
+To add another moving thing: `class Boulder extends MovingObject`,
+steer it through `this.mover` in its `update(dt)`, `world.add()` it,
+and `movement.add(boulder, { ...rules })`.
+
 ## Game state
 
 Two phases, controlled by a single `gameStarted` flag and one
-`keydown` listener:
+`keydown` listener. The loop runs in both. `tick()` only runs input,
+movement and combat once `gameStarted` is set.
 
 1. **Title screen** — `splash` (a `SplashScreen` instance) and
-   `pressAnyKey` (a `BlinkingText`) are added to the renderer.
-   `pressAnyKey.visible` is toggled by `blinkTimer` (a 500ms
-   `setInterval`) and re-rendered each toggle.
-2. **Playing** — the first `keydown` calls `startGame()`, which stops
-   the blink timer, removes the two title-screen objects, adds
-   `ground`, `mountain`, `tree`, `enemy`, `player`, starts the enemy's
-   patrol timer, and does one parallax update + render. Every keydown
-   *after* that runs the arrow-key
-   switch, clamps the player into the viewport, recomputes parallax,
-   and re-renders.
+   `pressAnyKey` (a `BlinkingText`) are in the world. `pressAnyKey`
+   toggles its own `visible` every `TITLE_BLINK_INTERVAL` (500ms) in
+   `update(dt)`.
+2. **Playing** — the first `keydown` calls `startGame()`, which removes
+   the two title-screen objects, adds `ground`, `mountain`, `tree`,
+   `enemy`, `player` to the world, registers the player and enemy
+   with the movement system, and does one parallax update.
 
 `BlinkingText` is a minimal renderable: `getAscii()` returns either its
-text or `""` depending on `visible`. It has no other behavior — it's
-the pattern to copy for any other "blink/flash" effect.
+text or `""` depending on `visible`, which flips on its own timer.
+It's the pattern to copy for any other "blink/flash" effect.
 
 ## Player
 
-`Player` is a single character (`"A"`) at `(x, y)`, `z = 20` (drawn on
-top of everything). `move(dx, dy)` (adds to `x`/`y`) exists as a plain
-primitive but isn't called by the input handler directly anymore — see
-"Movement collision" below for why. Clamping bounds
+`Player` (`extends MovingObject`) is a single character (`"A"`) at
+`(x, y)`, `z = 20` (drawn on top of everything). Clamping bounds
 (`PLAYER_MIN_X/MAX_X/MIN_Y/MAX_Y`, currently `0..width-1` / `0..height-1`)
 live in [game.js](game.js), not on `Player`, since they're really
-viewport bounds.
+viewport bounds. They're enforced by the player's movement rules.
 
-**Held-key movement:** the OS key auto-repeat (one step, a pause,
-then fast repeats) is ignored (`event.repeat`). Instead the arrow
-keys currently held are tracked in `heldArrows` (press order), and
-`pressArrow()` on a fresh press steps once right away and (re)starts
-`moveTimer`, which calls `stepPlayer()` every `PLAYER_MOVE_INTERVAL`
-(120ms) — a constant speed for as long as the key is held. The last
-pressed, still-held arrow is the direction walked; releasing it
-(`releaseArrow()` on `keyup`) falls back to the next one still held,
-and the timer stops once none are. A window `blur` drops all held
-arrows, since no `keyup` would arrive for them.
+**Held-key movement** ([PlayerController.js](PlayerController.js)):
+the key handlers only call `playerController.press(key, repeat)`/
+`release(key)`. The OS key auto-repeat is ignored. Once per tick,
+`update(dt)` looks at the arrows pressed since the last tick
+(`presses`) and the ones still held (`heldArrows`, press order):
 
-`player.facing` is `"left"` or `"right"` (default `"right"`), set only
-by `ArrowLeft`/`ArrowRight` steps in `stepPlayer()` — `ArrowUp`/`Down`
-leave it untouched, and it updates even if the move itself is blocked
-by a collision, since it's about which way the player is turned, not
-whether they actually moved.
+- a fresh press queues one step (`mover.queueStep`) on this tick
+- a held key queues another step every `PlayerController.MOVE_INTERVAL`
+  (120ms = 3 ticks)
+- the most recently pressed arrow is the direction; releasing it falls
+  back to the next one still held
+- a tap pressed *and* released between two ticks still counts, which
+  matters for mashing out of a push
+
+A window `blur` drops all held arrows, since no `keyup` would arrive
+for them.
+
+`player.facing` is `"left"` or `"right"` (default `"right"`), set by
+the controller whenever `ArrowLeft`/`ArrowRight` is the active
+direction — `ArrowUp`/`Down` leave it untouched, and it updates even
+if the move itself is blocked by a collision, since it's about which
+way the player is turned, not whether they actually moved.
 
 ## Combat: sword and shield
 
@@ -171,10 +274,11 @@ variables — "which weapon is out" is state that belongs to the
 character.
 
 - **`Sword`** (`W`, in the `keydown` handler's `swingSword()`) is a
-  one-shot, timer-driven animation: on press it's added to the
-  renderer, `setTimeout` flips its `frame` from `"slash"` to `"dash"`
-  after `SWORD_FRAME_DURATION` (120ms), and a second `setTimeout`
-  removes it after another 120ms. `player.sword` doubles as a
+  one-shot, tick-driven animation: on press it's added to the world;
+  its `update(dt)` flips `frame` from `"slash"` to `"dash"` once it has
+  been out for `SWORD_FRAME_DURATION` (120ms = 3 ticks), and after
+  another 120ms it sets `alive = false` and clears `player.sword`
+  itself, so the world drops it. `player.sword` doubles as a
   re-entrancy guard — `swingSword()` no-ops while it's non-null — and
   the `keydown` handler also checks `!event.repeat`, so holding `W`
   down triggers exactly one swing per physical press, not continuous
@@ -199,51 +303,53 @@ no blur-handler safety net for that yet.
 
 ## Enemy
 
-`Enemy` (`enemy`, `z = 15`, drawn as `"E"`) is the first game object
-that moves on its own, independent of player input. `startGame()`
-starts a `setInterval` (`ENEMY_STEP_INTERVAL`, 400ms) that calls
-`enemy.step(player)` + `checkEnemyEncounter()` + `renderer.render()`
-on its own cadence — this is the first thing in the game that
-re-renders without a keypress causing it, so it's also the first
-evidence that `renderer.render()` is cheap enough to call from
-multiple independent timers without coordination.
+`Enemy` (`extends MovingObject`, `z = 15`, drawn as `"E"`) moves on
+its own, independent of player input. It's constructed with its
+`target` (the player). Its `update(dt)` runs every tick as part of
+`world.update()` and only *decides* the velocity; the movement system
+moves it afterwards. All speeds are in cells per second. Three cases,
+checked in order:
 
-`step(player)` has three cases, checked in order:
+1. **Mid-push** (`this.push.active()`) — own velocity 0, so only the
+   push moves it. It recovers on its own: loses
+   `Enemy.PUSH_RECOVER_AMOUNT` (5) push speed every
+   `Enemy.PUSH_RECOVER_INTERVAL` (500ms).
+2. **Combat mode** (`isChasing()`: same row as the target) —
+   `approach(dt)` turns to face the player and closes in, slowly
+   accelerating: `approachSpeed` starts at `Enemy.APPROACH_START_SPEED`
+   (1.25), grows by `Enemy.APPROACH_ACCELERATION` (1.5625 per second),
+   capped at `Enemy.APPROACH_MAX_SPEED` (5). `allowsStep(x)` (used as
+   its movement rule) never lets it step past `player.x`, so it stops
+   right on the player, which is what triggers `checkEnemyEncounter()`.
+   The run-up resets (`stopApproach()`, also forgetting the mover's
+   half-crossed cell) when it turns around, is pushed, or goes back to
+   patrolling. `enemy.speed` (getter) is `approachSpeed` while
+   approaching, else `Enemy.PATROL_SPEED` (2.5).
+3. **Patrol** (otherwise) — walk a fixed row back and forth between
+   `minX`/`maxX` (`5`/`35` currently), reversing `direction` at
+   either end.
 
-1. **Mid-push** (`this.push.active()`) — leave `x` alone. A dedicated
-   push loop in `game.js` (see "Push" below) is moving it instead.
-2. **Combat mode** (`player.y === this.y`, same row) — patrolling
-   stops and `approach(player)` runs instead: it turns to face the
-   player and closes in, slowly accelerating. `approachSpeed` (cells
-   per tick, fractional, with a hidden `approachOffset` like `Push`)
-   starts at `Enemy.APPROACH_START_SPEED` (0.5), grows by
-   `Enemy.APPROACH_ACCELERATION` (0.25) per tick, capped at
-   `Enemy.APPROACH_MAX_SPEED` (2). It never moves past `player.x` —
-   it stops right on the player (colliding there is what feeds
-   `checkEnemyEncounter()`). The run-up resets (`resetApproach()`)
-   when it turns around, is pushed, or goes back to patrolling.
-   `enemy.speed` (getter) is `approachSpeed` while approaching, else
-   `Enemy.PATROL_SPEED` (1).
-3. **Patrol** (otherwise) — the original behavior: walk a fixed row
-   back and forth between `minX`/`maxX` (`5`/`35` currently),
-   reversing `direction` at either end.
+These speeds are the old per-400ms-step values converted to cells per
+second, so the enemy moves as fast as before, only smoothly instead
+of in 400ms jumps.
 
 `this.alive` starts `true` and flips to `false` in `vanishEnemy()`
 (see "Push" below) once a knockback carries it into the border or the
-environment; `game.js` checks it before stepping, colliding, or
-pushing the enemy any further, so a vanished enemy is inert even
-though the `enemy` reference itself is never reassigned/replaced.
+environment. That also removes it from the world and the movement
+system, so a vanished enemy is inert even though the `enemy` reference
+itself is never reassigned/replaced.
 
-**Enemy sword:** each enemy tick, `updateEnemySword()` (in
+**Enemy sword:** each tick, `updateEnemySword()` (in
 [game.js](game.js)) draws an `EnemySword` (`"-"`, one tile in front
 of the enemy along `direction`, `z = 25`) when the enemy is alive,
 not pushed, on the player's row, within `ENEMY_SWORD_DRAW_DISTANCE`
-(2) cells, and `enemy.swordReadyAt` has passed. `sheathEnemySword()`
-removes it after `ENEMY_SWORD_DURATION` (1200ms) and sets
-`swordReadyAt` to now + `ENEMY_SWORD_COOLDOWN` (800ms). `enemy.sword`
-is the current sword or `null`, mirroring `player.sword`; whether it's
-out at the moment of impact changes the collision outcome (see "Push"
-below).
+(2) cells, and `enemy.swordCooldown` has run down to 0. The sword's
+own `update(dt)` calls `sheathe()` after `ENEMY_SWORD_DURATION`
+(1200ms), which clears `enemy.sword` and sets `enemy.swordCooldown`
+to `ENEMY_SWORD_COOLDOWN` (800ms), counted down in `Enemy.update()`.
+`enemy.sword` is the current sword or `null`, mirroring
+`player.sword`. Whether it's out at the moment of impact changes the
+collision outcome (see "Push" below).
 
 The enemy isn't in `parallaxObjects` (it has no corners, its position
 isn't a function of the player) and isn't checked in `wouldCollideAt`
@@ -258,54 +364,47 @@ Not done yet, deliberately out of scope for now:
   does exist). `renderer.getCollisionShape()`'s default (fall back to
   `getAscii()`) already works for `Enemy` with no changes needed once
   that's wired up.
-- Combat-mode closing-in isn't checked against `parallaxObjects`
-  either — an enemy chasing the player through where a tree stands
-  just walks straight through it, same as patrol movement always has.
+- The enemy's own movement (chasing, patrol) isn't checked against
+  `parallaxObjects` — an enemy chasing the player through where a
+  tree stands just walks straight through it. Only its pushes are.
 - One enemy, one hardcoded patrol row — no patrol-path data structure,
   no spawning/despawning, no respawn once `alive` goes `false`.
 
 ## Push (knockback)
 
-`Push` ([Push.js](Push.js)) is a small reusable class — `speed` (cells
-per tick, may be fractional, `0` = inactive), `direction` (`-1`/`1`),
-a hidden sub-cell `offset`, and `recoverProgress` — with `active()`,
-`start(direction, speed)`, `stop()`, `step()`, and
-`recoverStep(pressesPerPoint)` methods.
-
-**Smooth position:** the owner's `x` stays an integer grid cell, but
-each tick `step()` adds `direction * speed` to `offset` (the "smooth"
-position relative to that cell), takes off whatever whole cells were
-crossed (`Math.trunc`), and returns them. Only that integer amount
-actually moves the owner; the fractional rest carries over to the
-next tick. So speed `0.5` moves one cell every other tick, `1.5`
-alternates 1 and 2 cells, and integer speeds behave exactly as
-before. `offset` is reset on `start()`/`stop()`. Both `Player`
-and `Enemy` hold one as `this.push`; `game.js` never touches
-speed/direction fields directly, only these methods, so the knockback
-rules themselves live on the class and `game.js` just orchestrates
-*when* to call them.
+`Push` ([Push.js](Push.js)) is a small class — `speed` (cells per
+second, may be fractional, `0` = inactive), `direction` (`-1`/`1`),
+and recovery counters — with `active()`, a `velocity` getter,
+`start(direction, speed)`, `stop()`, `recoverStep(pressesPerPoint,
+weight, amount)` and `recoverOverTime(elapsedMs, msPerStep, amount)`.
+Each `Mover` owns one (`player.push`/`enemy.push` are getters for
+it). Push only holds the knockback; the `Mover` turns its velocity
+into cells like any other movement (see "Movement"). A push is
+started with `mover.startPush(direction, speed)`, which also clears
+the half-crossed cell.
 
 The reaction to a player/enemy collision, resolved by both sides'
 weapons at the moment of impact. "Enemy speed" is `enemy.speed`
-(current approach speed, or 1 while patrolling); the player's speed
-is `PLAYER_SWORD_SPEED` (3), the force of its swing:
+(current approach speed, or 2.5 while patrolling); the player's speed
+is `PLAYER_SWORD_SPEED` (15), the force of its swing:
 
 | Player | Enemy | Player result | Enemy result |
 |---|---|---|---|
-| shield up (reflector) | any | unaffected | knocked back, `PUSH_INITIAL_SPEED` (3) |
+| shield up (reflector) | any | unaffected | knocked back, `PUSH_INITIAL_SPEED` (15) |
 | sword drawn | sword drawn (exchange) | knocked back, enemy speed | knocked back, `PLAYER_SWORD_SPEED` |
 | sword drawn | unarmed | unaffected | knocked back, `PLAYER_SWORD_SPEED` + enemy speed |
 | bare-handed | sword drawn | knocked back, `PUSH_INITIAL_SPEED` + enemy speed | unaffected |
-| bare-handed | unarmed | knocked back, `PUSH_INITIAL_SPEED` (3) | unaffected |
+| bare-handed | unarmed | knocked back, `PUSH_INITIAL_SPEED` (15) | unaffected |
+
+(15 cells/s is the old "3 cells per 200ms push step".)
 
 If both `sword` and `shield` are somehow active at once, shield wins —
 blocking takes priority over attacking.
 
 **Directions:** a collision means both share one cell, so their
-current positions can't tell who came from where. The callers pass
-`checkEnemyEncounter(playerFromX, enemyFromX)` the positions from
-*before* the move that brought them together (the player's step in
-`stepPlayer()`, or the enemy's `step()` in its interval). From those,
+current positions can't tell who came from where.
+`checkEnemyEncounter()` uses `player.previousX`/`enemy.previousX`
+instead: where each stood *before* this tick's movement. From those,
 `enemySide` (-1/1, which side of the player the enemy came from —
 falling back to `player.facing` if both were in the same column, i.e.
 the player stepped in vertically) decides everything directional:
@@ -317,64 +416,41 @@ the player stepped in vertically) decides everything directional:
   `enemy.direction` points toward the player — a weapon facing away
   is treated as not drawn.
 
-- `checkEnemyEncounter()` — called right after the player's own move
-  commits in the `keydown` handler, and right after `enemy.step()` in
-  its patrol interval — is the only trigger point, and only fires when
-  the enemy is still `alive` and *neither* side is already mid-push
-  (so standing inside the enemy for several ticks doesn't keep
-  re-triggering it). It reads `player.sword`/`player.shield`/`enemy.sword`
-  (non-null exactly while a swing/shield is active) to pick which row
-  of the table above applies, and calls `.push.start(direction,
-  speed)` on the player and/or the enemy accordingly.
-- A dedicated `setInterval` (`PUSH_STEP_INTERVAL`, 200ms) is what
-  actually moves anything mid-push:
-  - **Player**: while `player.push.active()`, adds the cells
-    returned by `player.push.step()` to `player.x` each tick,
-    clamped to the viewport (same as normal movement). A tick that
-    crosses no whole cell moves nothing.
-  - **Enemy**: while `enemy.push.active()` (and still `alive`),
-    calls `stepEnemyPush(cells)` with `enemy.push.step()`'s result
-    instead (skipped when it's `0`). Unlike the player, the enemy
-    is *not* clamped — `stepEnemyPush()` computes the unclamped next
-    `x` and, if that's off the display (`< 0` or `>= renderer.width`)
-    or overlaps any `parallaxObjects` shape at its current position,
-    calls `vanishEnemy()` (sets `alive = false`, stops its `push`,
-    `renderer.remove(enemy)`) instead of landing there. Otherwise it
-    moves normally. This is the "enemy dies hitting the
-    environment/border" case from the original design — a hard enough
-    push sends it flying off-screen or into scenery for good, rather
-    than bouncing/clamping.
-  - Either side actually changing cell triggers one
-    `updateParallax()` + `renderer.render()` for the tick.
-- Enemy recovery: the enemy has no input to fight a push with, so
-  each push-loop tick calls `enemy.push.recoverOverTime(PUSH_STEP_INTERVAL,
-  ENEMY_PUSH_RECOVER_INTERVAL, ENEMY_PUSH_RECOVER_AMOUNT)` — it loses
-  1 speed every 500ms, with leftover time carried over between ticks.
-- Player recovery pacing: each `stepPlayer()` step (a fresh arrow
-  press, or every `PLAYER_MOVE_INTERVAL` while one is held) while
-  `player.push.active()` calls
-  `player.push.recoverStep(PUSH_RECOVER_PRESSES_PER_POINT, weight)`,
-  which adds `weight` to `recoverProgress` — 1 for a fresh press,
-  `PUSH_RECOVER_HOLD_WEIGHT` (0.25) for a held-key tick, so tapping
-  recovers much faster than holding — and, once that hits
-  `PUSH_RECOVER_PRESSES_PER_POINT` (1), resets it and drops `speed` by
-  1 (auto-`stop()`ing at 0). It doesn't matter which of the 4 arrow
-  keys is pressed, only that one is.
+- `checkEnemyEncounter()` runs once per tick, after all movement, and
+  only fires when the enemy is still `alive` and *neither* side is
+  already mid-push (so standing inside the enemy for several ticks
+  doesn't keep re-triggering it). It reads
+  `player.sword`/`player.shield`/`enemy.sword` (non-null exactly while
+  a swing/shield is active) to pick which row of the table above
+  applies, and calls `mover.startPush(direction, speed)` on the player
+  and/or the enemy accordingly.
+- Moving anyone mid-push is ordinary movement (see "Movement"), with
+  these per-object rules:
+  - **Player**: blocked by the viewport edge and by scenery. It stays
+    there while the push wears off.
+  - **Enemy**: *not* clamped. A push step that would leave the display
+    or overlap any `parallaxObjects` shape (`enemyFitsAt()`) calls
+    `vanishEnemy()` (sets `alive = false`, stops its push, removes it
+    and its sword from the world and the movement system) instead of
+    landing there. This is the "enemy dies hitting the
+    environment/border" case from the original design.
+- Enemy recovery: see "Enemy" — 5 cells/s off every 500ms.
+- Player recovery (in `PlayerController.recover()`): while
+  `player.push.active()`, arrow keys don't move the player. Every
+  fresh press counts 1 toward `PUSH_RECOVER_PRESSES_PER_POINT` (1), a
+  held key's repeat (every `MOVE_INTERVAL`) only
+  `PUSH_RECOVER_HOLD_WEIGHT` (0.25), so tapping recovers much faster
+  than holding. Each full point drops the push speed by
+  `PUSH_RECOVER_AMOUNT` (5 cells/s), auto-`stop()`ing at 0. All
+  these constants are statics on `PlayerController`. It doesn't matter
+  which of the 4 arrow keys is pressed, only that one is.
 
 Known gaps / deliberate simplifications:
 
-- Player push movement still isn't checked against `parallaxObjects`
-  — a pushed player can be shoved straight through the tree/mountain's
-  collision map without stopping. Fine for now since pushes are short
-  and rare; would need the same kind of multi-cell sweep check
-  `wouldCollideAt` doesn't currently do either. (The enemy's push *is*
-  now checked against `parallaxObjects` — see above — since colliding
-  with them is exactly what makes it vanish.)
-- The environment check in `stepEnemyPush()` uses each `parallaxObject`'s
-  *current* rendered position, not a predicted one — fine because a
-  push tick never moves the player, so parallax positions don't shift
-  mid-check (unlike `wouldCollideAt`, which has to predict, since the
-  player's own move is what shifts them).
+- The environment check for the enemy (`enemyFitsAt()`) uses each
+  `parallaxObject`'s *current* rendered position, not a predicted one.
+  That's fine because the player moves first in the tick and updates
+  the parallax on every step.
 - The enemy has no shield, only a sword.
 
 ## Particles
@@ -388,36 +464,37 @@ per second) in a random direction chosen at creation. Position is
 kept smooth in `posX`/`posY`; `x`/`y` are rounding getters, since the
 renderer only accepts whole cells.
 
-In [game.js](game.js), live particles are kept in the `particles`
-array (and the renderer). `spawnParticles(x, y, count, speed?)`
-creates a burst; one `setInterval` (`PARTICLE_STEP_INTERVAL`, 50ms)
-calls `update(dt)` with the real elapsed time on each, and removes
-dead ones from both the array and the renderer.
+Particles are ordinary world objects. `spawnParticles(x, y, count,
+speed?, gravitation?)` in [game.js](game.js) adds a burst to the
+world, which calls `update(dt)` on each every tick and drops them
+once `alive` is false.
 
 Currently spawned in two places:
 
 - `checkEnemyEncounter()` — a burst of `COLLISION_PARTICLE_COUNT` (3)
   at the player's position whenever a player/enemy collision actually
   triggers a push reaction.
-- The push loop — while the player or the enemy is being pushed,
-  `spawnPushTrail(fromX, toX, y)` rolls once per cell the push carries
-  it out of and, with probability `TRACE_PARTICLE_DENSITY` (0.5),
-  spawns one particle at `TRACE_PARTICLE_SPEED` (1) there, leaving a
-  trace behind. An enemy that vanishes on a tick leaves no trail for
-  that tick, since it never lands.
+- Push movement — the player's and the enemy's `onMoved` movement rule
+  calls `leavePushTrace(fromX, fromY)` for every cell a push carries it
+  out of, which with probability `TRACE_PARTICLE_DENSITY` (0.5) spawns
+  one particle at `TRACE_PARTICLE_SPEED` (1) there, leaving a trace
+  behind. An enemy that vanishes leaves no trace for that last cell,
+  since it never lands.
 
 ## Squiggle
 
 Holding `D` grows a `Squiggle` ([Squiggle.js](Squiggle.js), `z = 22`,
 referenced as `player.squiggle`) from the tile right of the player:
 one random letter from `Squiggle.CHARACTERS` (`"=-~+"`) every
-`SQUIGGLE_GROW_INTERVAL` (5ms), up to `SQUIGGLE_MAX_LENGTH` (20).
+`Squiggle.GROW_INTERVAL` (5ms), up to `Squiggle.MAX_LENGTH` (20).
+The interval is shorter than a game tick, so its `update(dt)` adds
+all the letters due for that tick at once.
 Each letter is one column right of the previous one; the row only
 changes (randomly one up, one down, or the same) on every
-`Squiggle.DY_STEP_EVERY` (2nd) letter. Every growth step re-rolls
+`Squiggle.DY_STEP_EVERY` (2nd) letter. Every tick re-rolls
 the whole string (letters and path) at the new length; once it
-reaches `SQUIGGLE_MAX_LENGTH` it keeps being re-rolled at that
-length every tick, so it flickers for as long as `D` is held. It's glued to the player via getters
+reaches `Squiggle.MAX_LENGTH` it keeps being re-rolled at that
+length, so it flickers for as long as `D` is held. It's glued to the player via getters
 (it keeps its shape while the player moves) and is removed on
 `keyup`. Purely decorative — no collision check reads it, so it
 never affects combat. Like the shield, a missed `keyup` would leave
@@ -464,8 +541,8 @@ new SomeLayer({
 **Driving it:** `updateParallax()` (in [game.js](game.js)) computes
 `t = (player.x - MIN_X) / (MAX_X - MIN_X)` and the equivalent `u` for
 y, then calls `object.updatePosition(t, u)` for every entry in the
-`parallaxObjects` array. It's called once in `startGame()` and once
-per movement keypress. **If you add a new layer, remember to add the
+`parallaxObjects` array. It's called once in `startGame()` and after
+every cell the player moves (its `onMoved` movement rule). **If you add a new layer, remember to add the
 instance to `parallaxObjects` too** — being in the renderer's object
 list only makes it draw, it doesn't make it move.
 
@@ -485,7 +562,7 @@ To add another scenery piece:
 1. `class Bush extends ParallaxObject { constructor(corners) { super(corners, someZ); } getAscii() { return "..."; } }`
 2. Instantiate it with 4 corners (bigger spread = moves more = reads as
    closer; smaller spread = reads as farther away).
-3. `renderer.add(instance)` in `startGame()`.
+3. `world.add(instance)` in `startGame()`.
 4. Push it into `parallaxObjects` so `updateParallax()` actually moves
    it *and* so it's checked for collisions (see below).
 5. If the whole visible shape shouldn't block movement (e.g. only a
@@ -504,11 +581,11 @@ the player's candidate position, not where it currently is — otherwise
 by the time you've moved next to a tree, the tree has already shifted
 out from under you.
 
-The `keydown` handler in [game.js](game.js) does this in order:
+The player's `canEnter(x, y)` movement rule (see "Movement") checks,
+for every single cell the player would move into:
 
-1. Compute `dx`/`dy` from the arrow key, then `targetX`/`targetY` =
-   the player's position after that step, clamped to the viewport.
-2. `wouldCollideAt(targetX, targetY)`:
+1. That the cell is inside the viewport.
+2. `wouldCollideAt(x, y)`:
    - Get `t`/`u` for that *candidate* position (same normalization
      `updateParallax()` uses).
    - For each object in `parallaxObjects`, call
@@ -522,14 +599,9 @@ The `keydown` handler in [game.js](game.js) does this in order:
      `AsciiRenderer`) to test them — no new collision math, just
      feeding the existing pairwise test a hypothetical instead of a
      real object.
-3. Only if no probe collides does the handler actually write
-   `player.x`/`player.y`; either way it calls `updateParallax()` (to
-   reflect wherever the player ended up) and `renderer.render()`.
-
-This is why `Player.move()` is unused now — mutating the player up
-front and clamping/reverting afterwards gets fiddly at boundaries, so
-the handler computes the candidate position first and only commits it
-once it's known to be collision-free.
+3. Only if no probe collides does the movement system actually write
+   `player.x`/`player.y`. The `onMoved` rule then calls
+   `updateParallax()`.
 
 `ground` is not in `parallaxObjects` and is never checked — it can't
 block anything anyway, since its own `transparentChar` is `"."`, the
