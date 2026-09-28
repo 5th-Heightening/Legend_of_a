@@ -4,11 +4,17 @@
 
 class AsciiRenderer {
 
-    constructor(element, width = 36, height = 18) {
+    // width/height are the play area. With a borderChar, a one-cell
+    // frame of it is drawn around that area, so the element shows
+    // (width + 2) x (height + 2) characters - game coordinates stay
+    // the same, (0, 0) is still the play area's top-left cell.
+    constructor(element, width = 36, height = 18, borderChar = null) {
         this.element = element;
 
         this.width = width;
         this.height = height;
+
+        this.borderChar = borderChar;
 
         this.objects = [];
     }
@@ -55,9 +61,27 @@ class AsciiRenderer {
         }
 
 
-        this.element.textContent = buffer
+        this.element.textContent = this.frame(buffer)
             .map(row => row.join(""))
             .join("\n");
+    }
+
+
+    // Wraps the play area buffer in a one-cell border of borderChar,
+    // if one is set.
+    frame(buffer) {
+
+        if (this.borderChar === null) {
+            return buffer;
+        }
+
+        const edge = Array(this.width + 2).fill(this.borderChar);
+
+        return [
+            edge,
+            ...buffer.map(row => [this.borderChar, ...row, this.borderChar]),
+            edge
+        ];
     }
 
 

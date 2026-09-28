@@ -4,10 +4,16 @@
 
 const viewport = document.getElementById("viewport");
 
+// Drawn in a one-cell frame around the play area, so its edges are
+// visible. The viewport's CSS size is the play area + 2 in each
+// direction (see Legend_of_a.html).
+const VIEWPORT_BORDER_CHAR = "#";
+
 const renderer = new AsciiRenderer(
     viewport,
     41,
-    18
+    18,
+    VIEWPORT_BORDER_CHAR
 );
 
 
@@ -208,12 +214,19 @@ function enemyFitsAt(x, y) {
 //
 // - Player: stays inside the viewport and is blocked by scenery,
 //   whether walking or pushed. Every step shifts the parallax.
-// - Enemy: its own steps follow Enemy.allowsStep() (never past the
-//   player while chasing). A push that would carry it off the
-//   display or into scenery kills it instead - see vanishEnemy().
+// - Enemy: its own steps follow Enemy.allowsStep() (never onto or
+//   past the player while chasing). A push that would carry it off
+//   the display or into scenery kills it instead - see vanishEnemy().
+// - Neither can step onto the other's cell - they fight by touching
+//   (see checkEnemyEncounter()), not by overlapping.
 //
 // Both leave a trace of particles behind while pushed.
 // ==================================================
+
+function occupies(object, x, y) {
+    return object.alive !== false && object.x === x && object.y === y;
+}
+
 
 function registerMovement() {
 
@@ -222,7 +235,8 @@ function registerMovement() {
         canEnter: (x, y) =>
             x >= PLAYER_MIN_X && x <= PLAYER_MAX_X &&
             y >= PLAYER_MIN_Y && y <= PLAYER_MAX_Y &&
-            !wouldCollideAt(x, y),
+            !wouldCollideAt(x, y) &&
+            !occupies(enemy, x, y),
 
         onMoved: (fromX, fromY) => {
             if (player.push.active()) {
@@ -235,11 +249,19 @@ function registerMovement() {
 
     movement.add(enemy, {
 
-        canEnter: (x, y) =>
-            enemy.push.active() ? enemyFitsAt(x, y) : enemy.allowsStep(x),
+        canEnter: (x, y) => {
 
-        onBlocked: () => {
-            if (enemy.push.active()) {
+            if (occupies(player, x, y)) {
+                return false;
+            }
+
+            return enemy.push.active() ? enemyFitsAt(x, y) : enemy.allowsStep(x);
+        },
+
+        // Only the border/scenery kill - bumping into the player
+        // just stops the step.
+        onBlocked: (x, y) => {
+            if (enemy.push.active() && !enemyFitsAt(x, y)) {
                 vanishEnemy();
             }
         },
@@ -319,7 +341,7 @@ function hideShield() {
 // can draw again.
 // ==================================================
 
-const ENEMY_SWORD_DRAW_DISTANCE = 2;
+const ENEMY_SWORD_DRAW_DISTANCE = 3;
 const ENEMY_SWORD_DURATION = 1200;
 const ENEMY_SWORD_COOLDOWN = 800;
 
@@ -416,17 +438,45 @@ function leavePushTrace(x, y) {
 }
 
 
-// Checked once per tick, after everything has moved. Only fires when
-// neither side is already mid-push - otherwise every tick of overlap
+// How far apart (in cells, same row) a part of the player and a part
+// of the enemy may be and still touch. 1 = adjacent cells.
+const CONTACT_DISTANCE = 1;
+
+
+// The cells a side takes up in the fight: its body plus every
+// weapon it currently has out.
+function combatParts(body, ...weapons) {
+    return [body, ...weapons.filter(Boolean)];
+}
+
+
+// The first pair of parts (one per side) that touch - on the same
+// row, at most CONTACT_DISTANCE cells apart - or null.
+function findContact(partsA, partsB) {
+
+    for (const a of partsA) {
+        for (const b of partsB) {
+            if (a.y === b.y && Math.abs(a.x - b.x) <= CONTACT_DISTANCE) {
+                return { a, b };
+            }
+        }
+    }
+
+    return null;
+}
+
+
+// Checked once per tick, after everything has moved. Fires as soon
+// as any part of the player (body, sword, shield) touches any part
+// of the enemy (body, sword) - see findContact(). Only fires when
+// neither side is already mid-push - otherwise every tick of contact
 // would refresh it to full speed and neither would ever finish
 // recovering/flying apart.
 //
-// A collision means both share a cell, so only where they stood
-// *before* this tick's movement (previousX, see MovingObject.js)
-// tells which side each came from. Everything directional follows
-// from that one `enemySide`: who is pushed which way, and whether
-// each side's weapon actually faces the other (a shield on the back
-// doesn't block, a sword pointing away doesn't hit).
+// Everything directional follows from one `enemySide`: who is
+// pushed which way, and whether each side's weapon actually faces
+// the other (a shield on the back doesn't block, a sword pointing
+// away doesn't hit).
 function checkEnemyEncounter() {
 
     if (!enemy.alive) {
@@ -437,18 +487,27 @@ function checkEnemyEncounter() {
         return;
     }
 
-    if (!renderer.objectsCollide(player, enemy)) {
+    const contact = findContact(
+        combatParts(player, player.sword, player.shield),
+        combatParts(enemy, enemy.sword)
+    );
+
+    if (!contact) {
         return;
     }
 
-    spawnParticles(player.x, player.y, COLLISION_PARTICLE_COUNT);
+    // Burst at the player's touching part - sword tip, shield or body.
+    spawnParticles(contact.a.x, contact.a.y, COLLISION_PARTICLE_COUNT);
 
     const playerFacing = player.facing === "left" ? -1 : 1;
 
-    // Which side of the player the enemy came from (-1 left,
-    // 1 right). Same previous column (the player stepped into the
-    // enemy's row from above/below) - the enemy counts as in front.
-    const enemySide = Math.sign(enemy.previousX - player.previousX) || playerFacing;
+    // Which side of the player the enemy is on (-1 left, 1 right).
+    // Bodies can't share a cell, so this only falls back to where
+    // they came from / the player's facing in odd cases.
+    const enemySide =
+        Math.sign(enemy.x - player.x) ||
+        Math.sign(enemy.previousX - player.previousX) ||
+        playerFacing;
 
     const awayFromEnemy = -enemySide;
     const awayFromPlayer = enemySide;

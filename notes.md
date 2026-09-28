@@ -12,7 +12,7 @@ I think most of the clunkiness comes from how the fight is built, not from the p
 
 ## Ideas, most important first
 
-**1. One game tick for everything** (e.g. 50–100 ms). Enemy movement, pushes, weapon timing and hit checks all advance on the same beat. Timing then becomes predictable and learnable. Your "next steps" notes already suggested this.
+**1. Implemented: One game tick for everything** (e.g. 50–100 ms). Enemy movement, pushes, weapon timing and hit checks all advance on the same beat. Timing then becomes predictable and learnable. Your "next steps" notes already suggested this.
 
 **2. Attacks in three phases, with reach-based hits.** Each attack gets a wind-up (visible), a short active window, and a recovery.
 - A hit happens when the sword's tile touches the opponent, not when the bodies overlap. This makes distance matter.

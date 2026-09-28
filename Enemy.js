@@ -95,11 +95,11 @@ class Enemy extends MovingObject {
     }
 
 
-    // Speeds up toward the target - it stops right on the target
-    // (see allowsStep()), which is what triggers an encounter.
+    // Speeds up toward the target - it stops right next to the
+    // target (see allowsStep()); touching it triggers an encounter.
     approach(dt) {
 
-        if (this.x === this.target.x) {
+        if (Math.abs(this.x - this.target.x) <= 1) {
             this.mover.setVelocity(0, 0);
             return;
         }
@@ -151,13 +151,13 @@ class Enemy extends MovingObject {
 
 
     // Movement rule for the enemy's own steps (not pushes): while
-    // chasing, it never moves past the target.
+    // chasing, it never moves onto or past the target.
     allowsStep(x) {
 
         if (!this.isChasing()) {
             return true;
         }
 
-        return (x - this.target.x) * this.direction <= 0;
+        return (x - this.target.x) * this.direction < 0;
     }
 }

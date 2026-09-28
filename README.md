@@ -201,10 +201,13 @@ The rules for player and enemy are set in `registerMovement()` in
   (`wouldCollideAt`, see "Movement collision"), whether walking *or*
   pushed. Every step leaves a push trace if pushed and updates the
   parallax.
-- **Enemy**: its own steps follow `enemy.allowsStep(x)` (never past the
-  player while chasing). While pushed, `enemyFitsAt(x, y)` checks the
-  display bounds and scenery. A blocked push step calls
-  `vanishEnemy()`.
+- **Enemy**: its own steps follow `enemy.allowsStep(x)` (never onto or
+  past the player while chasing). While pushed, `enemyFitsAt(x, y)`
+  checks the display bounds and scenery. A push step blocked by those
+  calls `vanishEnemy()`.
+- Neither can step onto the other's cell (`occupies()`). They fight
+  by touching, not by overlapping (see "Push"). An enemy push blocked
+  only by the player's body just stops, it doesn't kill.
 
 To add another moving thing: `class Boulder extends MovingObject`,
 steer it through `this.mover` in its `update(dt)`, `world.add()` it,
@@ -319,8 +322,9 @@ checked in order:
    accelerating: `approachSpeed` starts at `Enemy.APPROACH_START_SPEED`
    (1.25), grows by `Enemy.APPROACH_ACCELERATION` (1.5625 per second),
    capped at `Enemy.APPROACH_MAX_SPEED` (5). `allowsStep(x)` (used as
-   its movement rule) never lets it step past `player.x`, so it stops
-   right on the player, which is what triggers `checkEnemyEncounter()`.
+   its movement rule) never lets it step onto or past `player.x`, so it
+   stops right next to the player. Touching the player is what
+   triggers `checkEnemyEncounter()`.
    The run-up resets (`stopApproach()`, also forgetting the mover's
    half-crossed cell) when it turns around, is pushed, or goes back to
    patrolling. `enemy.speed` (getter) is `approachSpeed` while
@@ -352,18 +356,12 @@ to `ENEMY_SWORD_COOLDOWN` (800ms), counted down in `Enemy.update()`.
 collision outcome (see "Push" below).
 
 The enemy isn't in `parallaxObjects` (it has no corners, its position
-isn't a function of the player) and isn't checked in `wouldCollideAt`
-— walking into it never blocks the player's movement. What it *does*
-trigger on contact is the push, below.
+isn't a function of the player) and isn't checked in `wouldCollideAt`.
+Its body blocks the player through the movement rules instead (see
+"Movement"). Touching it triggers the push, below.
 
 Not done yet, deliberately out of scope for now:
 
-- No interaction with `Sword`/`Shield` — nothing currently checks
-  whether a swing overlaps the enemy, or changes the collision outcome
-  while `Shield` is up (see "Push" below for the one reaction that
-  does exist). `renderer.getCollisionShape()`'s default (fall back to
-  `getAscii()`) already works for `Enemy` with no changes needed once
-  that's wired up.
 - The enemy's own movement (chasing, patrol) isn't checked against
   `parallaxObjects` — an enemy chasing the player through where a
   tree stands just walks straight through it. Only its pushes are.
@@ -401,13 +399,22 @@ is `PLAYER_SWORD_SPEED` (15), the force of its swing:
 If both `sword` and `shield` are somehow active at once, shield wins —
 blocking takes priority over attacking.
 
-**Directions:** a collision means both share one cell, so their
-current positions can't tell who came from where.
-`checkEnemyEncounter()` uses `player.previousX`/`enemy.previousX`
-instead: where each stood *before* this tick's movement. From those,
-`enemySide` (-1/1, which side of the player the enemy came from —
-falling back to `player.facing` if both were in the same column, i.e.
-the player stepped in vertically) decides everything directional:
+**Contact:** an encounter happens when the two sides *touch*, not
+when they overlap. Each side is a list of parts (`combatParts()`):
+the player's body plus its sword and shield if out, and the enemy's
+body plus its sword if out. `findContact()` looks for a player part
+and an enemy part on the same row, at most `CONTACT_DISTANCE` (1)
+cells apart, i.e. on adjacent cells. So reach matters. With a sword
+out, the player hits an enemy two cells away. If both have their
+swords out and facing each other, the blades touch with the bodies
+three cells apart. The collision particles burst at the player's
+touching part (sword tip, shield or body).
+
+**Directions:** bodies never share a cell, so `enemySide` (-1/1,
+which side of the player the enemy is on) comes straight from the
+current positions. It falls back to where they stood before the tick
+(`previousX`), then to `player.facing`, only in odd cases. It
+decides everything directional:
 
 - the player is pushed away from `enemySide`, the enemy toward it
   (i.e. away from the player);
@@ -418,8 +425,8 @@ the player stepped in vertically) decides everything directional:
 
 - `checkEnemyEncounter()` runs once per tick, after all movement, and
   only fires when the enemy is still `alive` and *neither* side is
-  already mid-push (so standing inside the enemy for several ticks
-  doesn't keep re-triggering it). It reads
+  already mid-push (so staying in contact for several ticks doesn't
+  keep re-triggering it). It reads
   `player.sword`/`player.shield`/`enemy.sword` (non-null exactly while
   a swing/shield is active) to pick which row of the table above
   applies, and calls `mover.startPush(direction, speed)` on the player
