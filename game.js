@@ -364,15 +364,17 @@ function hideShield() {
 // ==================================================
 // Combat: enemy sword
 //
-// While closing in on the player's row, the enemy draws its
-// sword ("-", see EnemySword.js) once the player is within
-// ENEMY_SWORD_DRAW_DISTANCE cells, puts it away again after
+// While closing in on the player's row, the enemy lifts its sword
+// ("|", see EnemySword.js) once the player is within
+// ENEMY_SWORD_DRAW_DISTANCE cells, as a warning. After
+// ENEMY_SWORD_WINDUP it strikes ("-"), puts it away again after
 // ENEMY_SWORD_DURATION, and waits ENEMY_SWORD_COOLDOWN before it
-// can draw again.
+// can lift it again.
 // ==================================================
 
 const ENEMY_SWORD_DRAW_DISTANCE = 3;
-const ENEMY_SWORD_DURATION = 1200;
+const ENEMY_SWORD_WINDUP = 200;
+const ENEMY_SWORD_DURATION = 700;
 const ENEMY_SWORD_COOLDOWN = 800;
 
 
@@ -396,7 +398,12 @@ function updateEnemySword() {
         return;
     }
 
-    enemy.sword = new EnemySword(enemy, ENEMY_SWORD_DURATION, ENEMY_SWORD_COOLDOWN);
+    enemy.sword = new EnemySword(
+        enemy,
+        ENEMY_SWORD_WINDUP,
+        ENEMY_SWORD_DURATION,
+        ENEMY_SWORD_COOLDOWN
+    );
     world.add(enemy.sword);
 }
 
@@ -499,7 +506,7 @@ function killPlayer() {
 // TRACE_PARTICLE_DENSITY.
 function leavePushTrace(x, y) {
     if (Math.random() < TRACE_PARTICLE_DENSITY) {
-        spawnParticles(x, y, 1, TRACE_PARTICLE_SPEED, false);
+        // spawnParticles(x, y, 1, TRACE_PARTICLE_SPEED, false);
     }
 }
 
@@ -553,9 +560,12 @@ function checkEnemyEncounter() {
         return;
     }
 
+    // A sword still being lifted (windup) doesn't count yet.
+    const enemyStrike = enemy.sword && enemy.sword.drawn ? enemy.sword : null;
+
     const contact = findContact(
         combatParts(player, player.sword, player.shield),
-        combatParts(enemy, enemy.sword)
+        combatParts(enemy, enemyStrike)
     );
 
     if (!contact) {
@@ -563,7 +573,8 @@ function checkEnemyEncounter() {
     }
 
     // Burst at the player's touching part - sword tip, shield or body.
-    spawnParticles(contact.a.x, contact.a.y, COLLISION_PARTICLE_COUNT);
+    // Deactivated for debugging!!
+    // spawnParticles(contact.a.x, contact.a.y, COLLISION_PARTICLE_COUNT);
 
     const playerFacing = player.facing === "left" ? -1 : 1;
 
@@ -583,7 +594,7 @@ function checkEnemyEncounter() {
 
     const shield = player.shield && playerFacesEnemy;
     const playerSword = player.sword && playerFacesEnemy;
-    const enemySword = enemy.sword && enemyFacesPlayer;
+    const enemySword = enemyStrike && enemyFacesPlayer;
 
     if (shield) {
         enemy.mover.startPush(awayFromPlayer, PUSH_INITIAL_SPEED);

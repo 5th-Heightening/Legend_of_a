@@ -354,16 +354,24 @@ system, so a vanished enemy is inert even though the `enemy` reference
 itself is never reassigned/replaced.
 
 **Enemy sword:** each tick, `updateEnemySword()` (in
-[game.js](game.js)) draws an `EnemySword` (`"-"`, one tile in front
-of the enemy along `direction`, `z = 25`) when the enemy is alive,
-not pushed, on the player's row, within `ENEMY_SWORD_DRAW_DISTANCE`
-(2) cells, and `enemy.swordCooldown` has run down to 0. The sword's
-own `update(dt)` calls `sheathe()` after `ENEMY_SWORD_DURATION`
-(1200ms), which clears `enemy.sword` and sets `enemy.swordCooldown`
-to `ENEMY_SWORD_COOLDOWN` (800ms), counted down in `Enemy.update()`.
-`enemy.sword` is the current sword or `null`, mirroring
-`player.sword`. Whether it's out at the moment of impact changes the
-collision outcome (see "Push" below).
+[game.js](game.js)) starts an `EnemySword` (`z = 25`) when the enemy
+is alive, not pushed, on the player's row, within
+`ENEMY_SWORD_DRAW_DISTANCE` (3) cells, and `enemy.swordCooldown` has
+run down to 0. The sword has two phases:
+
+1. **Windup** (`ENEMY_SWORD_WINDUP`, 400ms): the enemy lifts it, a
+   `"|"` at `EnemySword.WINDUP_DX`/`WINDUP_DY` from the enemy
+   (default: directly below it). A warning only, it doesn't touch or
+   hit anything.
+2. **Strike** (`ENEMY_SWORD_DURATION`, 500ms): a `"-"` one tile in
+   front of the enemy along `direction`. Only now is
+   `enemy.sword.drawn` true, and only then does it count in combat.
+
+After the strike, `sheathe()` clears `enemy.sword` and sets
+`enemy.swordCooldown` to `ENEMY_SWORD_COOLDOWN` (800ms), counted down
+in `Enemy.update()`. `enemy.sword` is the current sword (in either
+phase) or `null`, mirroring `player.sword`. Whether it's drawn at the
+moment of impact changes the collision outcome (see "Push" below).
 
 The enemy isn't in `parallaxObjects` (it has no corners, its position
 isn't a function of the player) and isn't checked in `wouldCollideAt`.
