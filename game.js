@@ -38,9 +38,10 @@ const movement = new MovementSystem();
 // The order of one tick:
 // 1. input - the arrow keys pressed/held since the last tick
 // 2. objects - enemy AI, weapon timers, particles, ...
-// 3. movement - everything that moves, one cell at a time
-// 4. combat - enemy sword, player/enemy encounter
-// 5. draw
+// 3. rubber band - player and enemy pull on each other in combat
+// 4. movement - everything that moves, one cell at a time
+// 5. combat - enemy sword, player/enemy encounter
+// 6. draw
 function tick(dt) {
 
     if (gameStarted && player.alive) {
@@ -50,6 +51,7 @@ function tick(dt) {
     world.update(dt);
 
     if (gameStarted) {
+        rubberBand.update(dt);
         movement.update(dt);
         updateEnemySword();
         checkEnemyEncounter();
@@ -90,6 +92,11 @@ const player = new Player(15, 10);
 const playerController = new PlayerController(player);
 
 const enemy = new Enemy(5, 12, 5, 35, player);
+
+// In combat, player and enemy pull on each other - see RubberBand.js.
+const rubberBand = new RubberBand(player, enemy);
+playerController.rubberBand = rubberBand;
+enemy.rubberBand = rubberBand;
 
 const tree = new Tree({
     topLeft: { x: 3, y: 3 },
@@ -244,11 +251,16 @@ function registerMovement() {
         // Only a push into the border/scenery kills - walking into
         // them (also sideways while pushed), or being pushed against
         // the enemy, just stops. Riding the push into them does kill.
+        // Being pulled into anything (see RubberBand.js) just comes to
+        // rest there.
         onBlocked: (x, y) => {
             const alongPush = Math.sign(x - player.x) === player.push.direction;
 
             if (player.push.active() && alongPush && !occupies(enemy, x, y)) {
                 killPlayer();
+            }
+            else if (x !== player.x && !player.push.active()) {
+                player.push.stop();
             }
         },
 
@@ -272,11 +284,15 @@ function registerMovement() {
             return enemy.push.active() ? enemyFitsAt(x, y) : enemy.allowsStep(x);
         },
 
-        // Only the border/scenery kill - bumping into the player
-        // just stops the step.
+        // Only a push into the border/scenery kills - bumping into
+        // the player just stops the step, and a pull (see
+        // RubberBand.js) comes to rest there.
         onBlocked: (x, y) => {
             if (enemy.push.active() && !enemyFitsAt(x, y)) {
                 vanishEnemy();
+            }
+            else if (!enemy.push.active()) {
+                enemy.push.stop();
             }
         },
 
@@ -390,14 +406,15 @@ function updateEnemySword() {
 //
 // Both player and enemy carry a Push (see Push.js, via their Mover):
 // a speed in cells per second and a direction, away from the other
-// side. The player's only goes down by pressing an arrow key (see
-// PlayerController.js); the enemy recovers on its own instead (see
-// Enemy.update()) - unless it hits the border/environment first,
-// vanishing there (see the enemy's movement rules).
+// side. In combat the rubber band brakes it and pulls both back
+// together (see RubberBand.js). Outside of combat the player's wears
+// off (see PlayerController.js), the enemy recovers on its own (see
+// Enemy.update()). A push into the border/environment kills (see the
+// movement rules).
 //
 // Combat resolution, decided by both sides' weapons at the moment
-// of collision. The enemy's speed is its current approach speed
-// (enemy.speed); the player's is PLAYER_SWORD_SPEED, the force of
+// of collision. The enemy's speed is how fast it's pulled toward the
+// player right now (enemy.speed); the player's is PLAYER_SWORD_SPEED, the force of
 // its swing:
 // - shield up: a reflector - the player takes nothing, the
 //   enemy bounces off with PUSH_INITIAL_SPEED
@@ -457,7 +474,7 @@ function vanishEnemy() {
 // Removes the player for good - called once a push carries it into
 // the border or the environment. Everything it had out goes with
 // it; from then on input is ignored and the enemy goes back to
-// patrolling (see Enemy.isChasing()).
+// patrolling (see Enemy.inCombat()).
 function killPlayer() {
     player.alive = false;
     player.push.stop();

@@ -1,23 +1,17 @@
 // Walks back and forth along a fixed row between minX and maxX,
-// reversing direction at either end, until its target (the player)
-// shares its row - then it stops patrolling and closes in on the
-// target instead, slowly accelerating. update() only decides the
-// enemy's velocity once per game tick; the MovementSystem moves it.
+// reversing direction at either end, until it's in combat with its
+// target (the player) - then the rubber band (see RubberBand.js)
+// pulls it toward the target instead, and it only keeps facing it.
+// update() only decides the enemy's velocity once per game tick;
+// the MovementSystem moves it.
 class Enemy extends MovingObject {
-
-    // Closing-in speed, in cells per second. Starts at
-    // APPROACH_START_SPEED and grows by APPROACH_ACCELERATION every
-    // second, up to APPROACH_MAX_SPEED.
-    static APPROACH_START_SPEED = 1.25;
-    static APPROACH_ACCELERATION = 1.5625;
-    static APPROACH_MAX_SPEED = 5;
 
     // Speed while patrolling, in cells per second.
     static PATROL_SPEED = 2.5;
 
-    // The enemy has no input to fight a push with, so it recovers on
-    // its own: loses PUSH_RECOVER_AMOUNT (cells per second) of push
-    // speed every PUSH_RECOVER_INTERVAL ms.
+    // Outside of combat the enemy has no input to fight a push with,
+    // so it recovers on its own: loses PUSH_RECOVER_AMOUNT (cells per
+    // second) of push speed every PUSH_RECOVER_INTERVAL ms.
     static PUSH_RECOVER_INTERVAL = 500;
     static PUSH_RECOVER_AMOUNT = 5;
 
@@ -32,8 +26,8 @@ class Enemy extends MovingObject {
 
         this.direction = 1;
 
-        // Current closing-in speed, 0 while not approaching.
-        this.approachSpeed = 0;
+        // Set in game.js - decides when the enemy is in combat.
+        this.rubberBand = null;
 
         // Drawn sword, or null when not out. Set by drawEnemySword()
         // in game.js, cleared by EnemySword.sheathe(). The enemy won't
@@ -52,30 +46,40 @@ class Enemy extends MovingObject {
     }
 
 
-    // How fast the enemy is currently moving under its own power,
-    // in cells per second - what a collision reaction uses as "the
+    // How fast the enemy is currently closing in on the target, in
+    // cells per second - what a collision reaction uses as "the
     // enemy's speed".
     get speed() {
-        return this.approachSpeed > 0 ? this.approachSpeed : Enemy.PATROL_SPEED;
+        return this.inCombat() ? Math.max(0, -this.push.speed) : Enemy.PATROL_SPEED;
     }
 
 
-    // Same row as a living target - combat mode.
+    inCombat() {
+        return this.rubberBand !== null && this.rubberBand.engaged();
+    }
+
+
+    // Same row as a living target.
     isChasing() {
         return this.target && this.target.alive !== false && this.target.y === this.y;
     }
 
 
-    // One game tick of decision making. While being pushed, the
-    // push alone moves the enemy, and it slowly recovers from it.
-    // Otherwise: in combat mode, face and close in on the target;
-    // off its row, patrol.
+    // One game tick of decision making. In combat, the rubber band
+    // alone moves the enemy; it just keeps facing the target.
+    // Otherwise: while pushed, the push alone moves it and it slowly
+    // recovers; else it patrols.
     update(dt) {
 
         this.swordCooldown = Math.max(0, this.swordCooldown - dt);
 
+        if (this.inCombat()) {
+            this.mover.setVelocity(0, 0);
+            this.direction = this.rubberBand.towardOther(this) || this.direction;
+            return;
+        }
+
         if (this.push.active()) {
-            this.stopApproach();
             this.mover.setVelocity(0, 0);
 
             this.push.recoverOverTime(
@@ -86,47 +90,11 @@ class Enemy extends MovingObject {
             return;
         }
 
-        if (this.isChasing()) {
-            this.approach(dt);
-            return;
-        }
-
         this.patrol();
     }
 
 
-    // Speeds up toward the target - it stops right next to the
-    // target (see allowsStep()); touching it triggers an encounter.
-    approach(dt) {
-
-        if (Math.abs(this.x - this.target.x) <= 1) {
-            this.mover.setVelocity(0, 0);
-            return;
-        }
-
-        const direction = this.target.x < this.x ? -1 : 1;
-
-        // Turning around starts the run-up from scratch.
-        if (direction !== this.direction) {
-            this.stopApproach();
-            this.direction = direction;
-        }
-
-        this.approachSpeed = Math.min(
-            Math.max(
-                this.approachSpeed + Enemy.APPROACH_ACCELERATION * dt / 1000,
-                Enemy.APPROACH_START_SPEED
-            ),
-            Enemy.APPROACH_MAX_SPEED
-        );
-
-        this.mover.setVelocity(this.direction * this.approachSpeed, 0);
-    }
-
-
     patrol() {
-
-        this.stopApproach();
 
         if (this.x >= this.maxX) {
             this.direction = -1;
@@ -139,19 +107,8 @@ class Enemy extends MovingObject {
     }
 
 
-    stopApproach() {
-
-        if (this.approachSpeed === 0) {
-            return;
-        }
-
-        this.approachSpeed = 0;
-        this.mover.resetOffset();
-    }
-
-
-    // Movement rule for the enemy's own steps (not pushes): while
-    // chasing, it never moves onto or past the target.
+    // Movement rule for the enemy's steps while not pushed: on the
+    // target's row, it never moves onto or past the target.
     allowsStep(x) {
 
         if (!this.isChasing()) {

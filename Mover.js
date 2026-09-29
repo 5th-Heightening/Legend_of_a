@@ -77,13 +77,17 @@ class Mover {
 
         const seconds = dt / 1000;
 
-        // A push that just wore off leaves no half-crossed cell
-        // behind for the drive to inherit.
-        if (this.wasPushed && !this.push.active()) {
+        // A push that just stopped leaves no half-crossed cell
+        // behind for the drive to inherit. (A push turning into a
+        // pull back - see RubberBand.js - keeps it, the motion is
+        // continuous.)
+        const pushed = this.push.velocity !== 0;
+
+        if (this.wasPushed && !pushed) {
             this.resetOffset();
         }
 
-        this.wasPushed = this.push.active();
+        this.wasPushed = pushed;
 
         this.offsetX += (this.velocityX + this.push.velocity) * seconds;
         this.offsetY += this.velocityY * seconds;

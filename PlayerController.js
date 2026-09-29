@@ -12,6 +12,11 @@
 // push wears off on its own; holding the arrow against it digs in
 // (no step, wears off faster), holding it along the push rides it
 // (steps on top of the push). See Push.wearOff().
+//
+// In combat (see RubberBand.js) left/right don't step. Each fresh
+// press adds COMBAT_IMPULSE to the player's speed once instead -
+// holding the key adds nothing more. The player keeps facing the
+// enemy. Up/down step as usual.
 class PlayerController {
 
     static DIRECTIONS = {
@@ -30,6 +35,9 @@ class PlayerController {
     static PUSH_RECOVER_INTERVAL = 500;
     static PUSH_RECOVER_AMOUNT = 5;
 
+    // Speed (cells per second) one left/right press adds in combat.
+    static COMBAT_IMPULSE = 4;
+
 
     constructor(player) {
         this.player = player;
@@ -45,6 +53,9 @@ class PlayerController {
 
         // Time the current arrow has been held since its last step.
         this.holdTime = 0;
+
+        // Set in game.js - decides when the player is in combat.
+        this.rubberBand = null;
     }
 
 
@@ -86,8 +97,12 @@ class PlayerController {
         const presses = this.presses.splice(0);
         const key = presses.at(-1) ?? this.heldArrows.at(-1);
         const push = this.player.push;
+        const inCombat = this.rubberBand !== null && this.rubberBand.engaged();
 
-        if (push.active()) {
+        if (inCombat) {
+            this.fence(presses);
+        }
+        else if (push.active()) {
             const dx = key ? PlayerController.DIRECTIONS[key].dx : 0;
 
             push.wearOff(
@@ -104,6 +119,12 @@ class PlayerController {
         }
 
         const { dx, dy } = PlayerController.DIRECTIONS[key];
+
+        // In combat left/right only change the speed - see fence().
+        if (inCombat && dx !== 0) {
+            this.holdTime = 0;
+            return;
+        }
 
         // Digging in: stand your ground, don't step.
         const diggingIn = push.isAgainst(dx);
@@ -137,6 +158,26 @@ class PlayerController {
 
         if (freshPresses > 0 || heldRepeat) {
             this.player.mover.queueStep(dx, dy);
+        }
+    }
+
+
+    // Combat: every fresh left/right press adds COMBAT_IMPULSE to the
+    // speed, and the player turns toward the enemy.
+    fence(presses) {
+
+        for (const key of presses) {
+            const { dx } = PlayerController.DIRECTIONS[key];
+
+            if (dx !== 0) {
+                this.player.push.addVelocity(dx * PlayerController.COMBAT_IMPULSE);
+            }
+        }
+
+        const toward = this.rubberBand.towardOther(this.player);
+
+        if (toward !== 0) {
+            this.player.facing = toward < 0 ? "left" : "right";
         }
     }
 }

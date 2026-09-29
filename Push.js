@@ -29,9 +29,11 @@ class Push {
     }
 
 
-    // Signed speed in cells per second, 0 while not pushed.
+    // Signed speed in cells per second, 0 while stopped. In combat the
+    // speed may also be negative - moving against `direction`, see
+    // RubberBand.js.
     get velocity() {
-        return this.active() ? this.direction * this.speed : 0;
+        return this.direction * this.speed;
     }
 
 
@@ -53,6 +55,39 @@ class Push {
         this.direction = direction;
         this.speed = speed;
         this.recoverTime = 0;
+    }
+
+
+    // Keeps the velocity, but measures it along `direction` from now
+    // on - the speed flips sign if the direction flips.
+    orient(direction) {
+
+        if (direction === this.direction) {
+            return;
+        }
+
+        if (this.direction !== 0) {
+            this.speed = -this.speed;
+        }
+        else {
+            this.speed = 0;
+        }
+
+        this.direction = direction;
+    }
+
+
+    // Adds a signed velocity (cells per second). The speed may drop
+    // below 0, i.e. turn against `direction`.
+    addVelocity(velocity) {
+
+        if (this.direction === 0) {
+            this.direction = Math.sign(velocity);
+            this.speed = Math.abs(velocity);
+            return;
+        }
+
+        this.speed += velocity * this.direction;
     }
 
 

@@ -39,3 +39,9 @@ These are cheap to build and have a big effect on how it feels.
 Start with **1 + 2 + 6**: one tick, three-phase attacks with reach-based hits, and hit-stop. That should give the "measure the distance, read the enemy, strike at the right moment" feel, and the other ideas can then be added one by one. The push system stays; it just becomes the result of a hit instead of the whole fight.
 
 Shall I prototype that first step? It would mostly be a new tick loop in `game.js` plus a small attack-state class, and the old collision rules would be replaced by reach-based hits.
+
+
+## Next idea:
+
+Ok, tested it and it plays smoothly. Nevertheless, I created a branch because this is a mechanic for the fencing that I want to test: while the player and the enemy are in combat (so if they are on the same row or one row away from each other), both should accelerate towards each other. so there is a constant force in one direction. A push is then just speed in the opposite direction. The cursor keys provide a singular influence on the speed.
+

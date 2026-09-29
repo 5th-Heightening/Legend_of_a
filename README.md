@@ -24,6 +24,7 @@ by `SplashScreen.js`/`SpeechBubble.js` before this split:
 | [Mover.js](Mover.js) | Movement state of one moving object: own velocity, queued steps, knockback (`Push`), sub-cell offset — see "Movement" below. |
 | [MovingObject.js](MovingObject.js) | Base class for everything that moves (`Player`, `Enemy`): position + a `Mover`. |
 | [MovementSystem.js](MovementSystem.js) | Moves every registered `MovingObject` once per tick, one cell at a time, against per-object rules. |
+| [RubberBand.js](RubberBand.js) | Combat pull: player and enemy accelerate toward each other while in combat — see "Rubber band" below. |
 | [Player.js](Player.js) | Player state (`extends MovingObject`): facing and `sword`/`shield` weapon references. |
 | [PlayerController.js](PlayerController.js) | Arrow-key input → player steps / push recovery, sampled once per tick. |
 | [Sword.js](Sword.js), [Shield.js](Shield.js) | Combat visuals, both take a `player` reference in their constructor. |
@@ -55,7 +56,7 @@ fails at the first `new` call, not at parse time:
    specifically, since `class Tree extends ParallaxObject` needs
    `ParallaxObject` to already exist.
 3. `Push.js`, `Mover.js`, `MovingObject.js`, `MovementSystem.js`,
-   then `Player.js`, `PlayerController.js`, `Sword.js`, `Shield.js`,
+   `RubberBand.js`, then `Player.js`, `PlayerController.js`, `Sword.js`, `Shield.js`,
    `Ground.js`, `Enemy.js`, `EnemySword.js`, `Squiggle.js`,
    `BlinkingText.js`, `SplashScreen.js`. `MovingObject.js` must come
    before `Player.js`/`Enemy.js` (they `extends MovingObject`).
@@ -153,11 +154,13 @@ One tick, in this order:
    enemy AI, sword/enemy-sword timers, particles, squiggle, title
    blink. Any object that sets `alive = false` is removed from the
    world *and* the renderer right there.
-3. **Movement** — `movement.update(dt)` moves every `MovingObject`
+3. **Rubber band** — `rubberBand.update(dt)` pulls player and enemy
+   toward each other while they're in combat (see "Rubber band").
+4. **Movement** — `movement.update(dt)` moves every `MovingObject`
    (see "Movement" below).
-4. **Combat** — `updateEnemySword()`, then `checkEnemyEncounter()`,
+5. **Combat** — `updateEnemySword()`, then `checkEnemyEncounter()`,
    once, after everything has moved.
-5. **Draw** — `renderer.render()`, the only render call in the game.
+6. **Draw** — `renderer.render()`, the only render call in the game.
 
 Key handlers never move or render anything themselves. Arrow keys are
 only recorded (the controller acts on them on the next tick), and
@@ -328,29 +331,21 @@ its own, independent of player input. It's constructed with its
 moves it afterwards. All speeds are in cells per second. Three cases,
 checked in order:
 
-1. **Mid-push** (`this.push.active()`) — own velocity 0, so only the
-   push moves it. It recovers on its own: loses
+1. **Combat** (`inCombat()`, see "Rubber band") — own velocity 0,
+   the rubber band alone moves it. It only turns to face the player.
+   On the player's row (`isChasing()`), `allowsStep(x)` (used as its
+   movement rule while not pushed) never lets it step onto or past
+   `player.x`, so a pull stops right next to the player. Touching the
+   player is what triggers `checkEnemyEncounter()`.
+   `enemy.speed` (getter) is how fast it's pulled toward the player
+   right now in combat, else `Enemy.PATROL_SPEED` (2.5).
+2. **Mid-push** outside of combat (`this.push.active()`) — own velocity
+   0, so only the push moves it. It recovers on its own: loses
    `Enemy.PUSH_RECOVER_AMOUNT` (5) push speed every
    `Enemy.PUSH_RECOVER_INTERVAL` (500ms).
-2. **Combat mode** (`isChasing()`: same row as the target) —
-   `approach(dt)` turns to face the player and closes in, slowly
-   accelerating: `approachSpeed` starts at `Enemy.APPROACH_START_SPEED`
-   (1.25), grows by `Enemy.APPROACH_ACCELERATION` (1.5625 per second),
-   capped at `Enemy.APPROACH_MAX_SPEED` (5). `allowsStep(x)` (used as
-   its movement rule) never lets it step onto or past `player.x`, so it
-   stops right next to the player. Touching the player is what
-   triggers `checkEnemyEncounter()`.
-   The run-up resets (`stopApproach()`, also forgetting the mover's
-   half-crossed cell) when it turns around, is pushed, or goes back to
-   patrolling. `enemy.speed` (getter) is `approachSpeed` while
-   approaching, else `Enemy.PATROL_SPEED` (2.5).
 3. **Patrol** (otherwise) — walk a fixed row back and forth between
    `minX`/`maxX` (`5`/`35` currently), reversing `direction` at
    either end.
-
-These speeds are the old per-400ms-step values converted to cells per
-second, so the enemy moves as fast as before, only smoothly instead
-of in 400ms jumps.
 
 `this.alive` starts `true` and flips to `false` in `vanishEnemy()`
 (see "Push" below) once a knockback carries it into the border or the
@@ -399,7 +394,7 @@ the half-crossed cell.
 
 The reaction to a player/enemy collision, resolved by both sides'
 weapons at the moment of impact. "Enemy speed" is `enemy.speed`
-(current approach speed, or 2.5 while patrolling); the player's speed
+(how fast the rubber band pulls it toward the player right now); the player's speed
 is `PLAYER_SWORD_SPEED` (15), the force of its swing:
 
 | Player | Enemy | Player result | Enemy result |
@@ -467,6 +462,9 @@ decides everything directional:
     edge, where it removes itself. `playDeathJump(character)` works
     for any character. The player can't die yet, but a player death
     should call it too.
+- In combat, a push doesn't wear off: the rubber band brakes it and
+  pulls the fighter back (see "Rubber band"). The recovery below only
+  applies outside of combat.
 - Enemy recovery: see "Enemy" — 5 cells/s off every 500ms.
 - Player recovery (balance, not control): while
   `player.push.active()`, the player keeps moving and steering.
@@ -490,6 +488,41 @@ Known gaps / deliberate simplifications:
   That's fine because the player moves first in the tick and updates
   the parallax on every step.
 - The enemy has no shield, only a sword.
+
+## Rubber band (combat)
+
+*Experimental, branch `rubber_band_fencing`.* `RubberBand`
+([RubberBand.js](RubberBand.js)) pulls player and enemy toward each
+other while they're **in combat**: both alive and at most
+`RubberBand.COMBAT_ROW_DISTANCE` (1) rows apart (`engaged()`).
+
+- **One speed per fighter.** All horizontal motion in combat is the
+  fighter's `Push`. `rubberBand.update(dt)` re-points
+  `push.direction` away from the other fighter every tick
+  (`push.orient()`, which keeps the velocity) and adds
+  `RubberBand.ATTRACTION` (12 cells/s²) toward the other one
+  (`push.addVelocity()`). A positive speed means flying apart, which
+  is a push (`push.active()`). The pull brakes it, and below 0 the
+  fighter swings back toward the other one, at most
+  `RubberBand.MAX_PULL_SPEED` (8 cells/s).
+- **A hit** (`checkEnemyEncounter()`) just sets the speed away again
+  (`startPush`). A push of 15 cells/s travels about 9 cells before it
+  turns around. Near a border or scenery, that is still deadly.
+- **Arrow keys**: every fresh left/right press adds
+  `PlayerController.COMBAT_IMPULSE` (4 cells/s) in that direction,
+  once. Holding the key adds nothing more, and left/right don't step
+  in combat. Up/down step as usual, so moving 2 rows away leaves
+  combat. The player always faces the enemy in combat.
+- **Blocked**: a fighter pulled into something (the other's body,
+  scenery) stops there (`push.stop()`), then the pull builds up again.
+- **One row apart** the two can't touch, so they swing past each
+  other. When they cross, the directions flip and the speed carries
+  over. Swinging away past the other counts as a push.
+- **Leaving combat** drops any speed toward the other fighter
+  (`RubberBand.letGo()`). A push still flying apart wears off as
+  described in "Push".
+- The enemy has no drive of its own in combat. The old approach
+  run-up is gone.
 
 ## Particles
 
