@@ -25,6 +25,7 @@ by `SplashScreen.js`/`SpeechBubble.js` before this split:
 | [MovingObject.js](MovingObject.js) | Base class for everything that moves (`Player`, `Enemy`): position + a `Mover`. |
 | [MovementSystem.js](MovementSystem.js) | Moves every registered `MovingObject` once per tick, one cell at a time, against per-object rules. |
 | [RubberBand.js](RubberBand.js) | Combat pull: player and enemy accelerate toward each other while in combat — see "Rubber band" below. |
+| [ContactPredictor.js](ContactPredictor.js) | Predicts when two fighters will touch, for the enemy's sword timing — see "Enemy" below. |
 | [Player.js](Player.js) | Player state (`extends MovingObject`): facing and `sword`/`shield` weapon references. |
 | [PlayerController.js](PlayerController.js) | Arrow-key input → player steps / braking / combat impulses, sampled once per tick. |
 | [Sword.js](Sword.js), [Shield.js](Shield.js) | Combat visuals, both take a `player` reference in their constructor. |
@@ -55,7 +56,7 @@ fails at the first `new` call, not at parse time:
    specifically, since `class Tree extends ParallaxObject` needs
    `ParallaxObject` to already exist.
 3. `Mover.js`, `MovingObject.js`, `MovementSystem.js`,
-   `RubberBand.js`, then `Player.js`, `PlayerController.js`, `Sword.js`, `Shield.js`,
+   `RubberBand.js`, `ContactPredictor.js`, then `Player.js`, `PlayerController.js`, `Sword.js`, `Shield.js`,
    `Ground.js`, `Enemy.js`, `EnemySword.js`, `Squiggle.js`,
    `BlinkingText.js`, `SplashScreen.js`. `MovingObject.js` must come
    before `Player.js`/`Enemy.js` (they `extends MovingObject`).
@@ -361,17 +362,29 @@ environment. That also removes it from the world and the movement
 system, so a vanished enemy is inert even though the `enemy` reference
 itself is never reassigned/replaced.
 
-**Enemy sword:** each tick, `updateEnemySword()` (in
-[game.js](game.js)) starts an `EnemySword` (`z = 25`) when the enemy
-is alive, not flying away from the player, on the player's row, within
-`ENEMY_SWORD_DRAW_DISTANCE` (3) cells, and `enemy.swordCooldown` has
-run down to 0. The sword has two phases:
+**Enemy sword:** the enemy times its attack. Each tick,
+`updateEnemySword()` (in [game.js](game.js)) asks
+`contactPredictor.timeToContact()` ([ContactPredictor.js](ContactPredictor.js))
+how many ms until its sword tip (`ENEMY_SWORD_REACH`, 1 cell) would
+touch the player (body, plus 1 cell if a sword/shield is out toward
+the enemy, `playerReach()`). The predictor copies both fighters'
+cell, half-crossed cell and speed and runs the rubber band's pull
+(`RubberBand.pulledVelocity()`) and the `Mover`'s cell stepping
+forward tick by tick, up to `ContactPredictor.LOOKAHEAD` (3s) — the
+same math as the game, so the prediction holds as long as nobody
+presses a key or hits anything.
 
-1. **Windup** (`ENEMY_SWORD_WINDUP`, 400ms): the enemy lifts it, a
+The enemy starts an `EnemySword` (`z = 25`) once that time is between
+`ENEMY_SWORD_WINDUP` and `ENEMY_SWORD_WINDUP + ENEMY_SWORD_LEAD`
+(80ms), so the strike comes out just before contact. Not while the
+predicted contact is too far off, already too close to wind up, or
+`enemy.swordCooldown` hasn't run down to 0. The sword has two phases:
+
+1. **Windup** (`ENEMY_SWORD_WINDUP`, 200ms): the enemy lifts it, a
    `"|"` at `EnemySword.WINDUP_DX`/`WINDUP_DY` from the enemy
-   (default: directly below it). A warning only, it doesn't touch or
+   (default: directly above it). A warning only, it doesn't touch or
    hit anything.
-2. **Strike** (`ENEMY_SWORD_DURATION`, 500ms): a `"-"` one tile in
+2. **Strike** (`ENEMY_SWORD_DURATION`, 700ms): a `"-"` one tile in
    front of the enemy along `direction`. Only now is
    `enemy.sword.drawn` true, and only then does it count in combat.
 
@@ -414,6 +427,12 @@ from the other side):
 `SWORD_IMPULSE` (6 cells/s, in [game.js](game.js)) is the force the
 enemy's sword adds to the player when it hits. The player's sword
 adds nothing.
+
+On top of the table, everyone who bounces off (result > 0) gets
+`ENCOUNTER_PUSH` (1 cell/s) extra; whoever stands firm keeps 0. The
+fixed tick loses a little speed on every bounce (the pull already
+brakes the first tick after the reversal), and without this the
+fight would slowly die down.
 
 If both `sword` and `shield` are somehow active at once, shield wins —
 blocking takes priority over attacking.

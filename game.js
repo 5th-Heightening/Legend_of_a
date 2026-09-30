@@ -377,38 +377,61 @@ function hideShield() {
 // ==================================================
 // Combat: enemy sword
 //
-// While closing in on the player's row, the enemy lifts its sword
-// ("|", see EnemySword.js) once the player is within
-// ENEMY_SWORD_DRAW_DISTANCE cells, as a warning. After
-// ENEMY_SWORD_WINDUP it strikes ("-"), puts it away again after
-// ENEMY_SWORD_DURATION, and waits ENEMY_SWORD_COOLDOWN before it
-// can lift it again.
+// The enemy times its attack: every tick it predicts when its
+// sword tip would touch the player (see ContactPredictor.js) and
+// lifts the sword ("|", see EnemySword.js) just early enough that
+// the strike ("-") is out at that moment - ENEMY_SWORD_WINDUP ms of
+// warning, then the strike ENEMY_SWORD_LEAD ms or less before the
+// predicted contact. It puts the sword away again after
+// ENEMY_SWORD_DURATION, and waits ENEMY_SWORD_COOLDOWN before it can
+// lift it again.
 // ==================================================
 
-const ENEMY_SWORD_DRAW_DISTANCE = 3;
 const ENEMY_SWORD_WINDUP = 200;
 const ENEMY_SWORD_DURATION = 700;
 const ENEMY_SWORD_COOLDOWN = 800;
 
+// Latest the strike comes out before the predicted contact (ms).
+// At least one TICK_INTERVAL, or the right moment could fall
+// between two ticks.
+const ENEMY_SWORD_LEAD = 80;
 
-// Called every tick - draws the sword if the enemy is in range,
-// able to fight and not still cooling down.
+// Cells in front of the enemy the strike reaches.
+const ENEMY_SWORD_REACH = 1;
+
+const contactPredictor = new ContactPredictor(TICK_INTERVAL);
+
+
+// Cells the player reaches toward the enemy right now - one more
+// with a sword or shield out on that side.
+function playerReach() {
+    const facing = player.facing === "left" ? -1 : 1;
+    const weaponOut = player.sword || player.shield;
+
+    return weaponOut && facing === Math.sign(enemy.x - player.x) ? 1 : 0;
+}
+
+
+// Called every tick - draws the sword once a strike started now
+// would be out right when the sword touches the player.
 function updateEnemySword() {
 
-    // Not while flying away from the player.
-    if (!enemy.alive || enemy.sword || rubberBand.speedToward(enemy) < 0) {
+    if (!enemy.alive || enemy.sword || enemy.swordCooldown > 0) {
         return;
     }
 
-    if (!player.alive || player.y !== enemy.y) {
+    if (!player.alive) {
         return;
     }
 
-    if (Math.abs(player.x - enemy.x) > ENEMY_SWORD_DRAW_DISTANCE) {
-        return;
-    }
+    const eta = contactPredictor.timeToContact(
+        enemy, ENEMY_SWORD_REACH,
+        player, playerReach(),
+        CONTACT_DISTANCE
+    );
 
-    if (enemy.swordCooldown > 0) {
+    // No contact coming, or too early / already too late to wind up.
+    if (eta === null || eta < ENEMY_SWORD_WINDUP || eta > ENEMY_SWORD_WINDUP + ENEMY_SWORD_LEAD) {
         return;
     }
 
@@ -450,6 +473,12 @@ function updateEnemySword() {
 // Cells per second the enemy's sword adds to the player's speed when
 // it hits.
 const SWORD_IMPULSE = 6;
+
+// Cells per second added to everyone who bounces off in an
+// encounter (anyone who stands firm keeps 0). Makes up for the speed
+// the fixed tick loses on every bounce, so a fight doesn't slowly
+// die down.
+const ENCOUNTER_PUSH = 2;
 
 // Burst spawned where the player and enemy collide, and the
 // (slower) speed of the trace particles a pushed player/enemy
@@ -632,8 +661,15 @@ function checkEnemyEncounter() {
         enemyAway = playerApproach;
     }
 
-    player.mover.knock(-enemySide * playerAway);
-    enemy.mover.knock(enemySide * enemyAway);
+    player.mover.knock(-enemySide * withEncounterPush(playerAway));
+    enemy.mover.knock(enemySide * withEncounterPush(enemyAway));
+}
+
+
+// A speed away from the other side, plus ENCOUNTER_PUSH if it
+// bounces off at all.
+function withEncounterPush(away) {
+    return away > 0 ? away + ENCOUNTER_PUSH : away;
 }
 
 

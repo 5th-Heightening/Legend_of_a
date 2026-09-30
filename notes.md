@@ -45,3 +45,10 @@ Shall I prototype that first step? It would mostly be a new tick loop in `game.j
 
 Ok, tested it and it plays smoothly. Nevertheless, I created a branch because this is a mechanic for the fencing that I want to test: while the player and the enemy are in combat (so if they are on the same row or one row away from each other), both should accelerate towards each other. so there is a constant force in one direction. A push is then just speed in the opposite direction. The cursor keys provide a singular influence on the speed.
 
+#### Combat suggestions
+
+ - The acceleration feels inconsistent: make it faster on lower speeds, so the movement is merely hyperbolic-shaped than parabolic (almost constant at high speed, fast changing on low speed)
+ - the shield is overpowered: When it is drawn, stop movement, after encounter with shield, unemploy it (with cooldown?), so you cannot have it raised all the time.
+
+ - Better in the latest versions, so dont implement yet: Furthermore, the enemy could draw his sword more (sometimes charging without attack)
+

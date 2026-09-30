@@ -64,17 +64,26 @@ class RubberBand {
 
     pull(fighter, dt) {
 
-        const toward = this.towardOther(fighter);
+        const velocity = fighter.velocityX;
+        const pulled = RubberBand.pulledVelocity(velocity, this.towardOther(fighter), dt);
 
-        // Same column: no horizontal pull this tick.
+        fighter.mover.accelerate(pulled - velocity);
+    }
+
+
+    // The velocity after one tick of pull toward direction `toward`
+    // (-1/1; 0 = same column, no pull). Also used to predict contact,
+    // see ContactPredictor.js.
+    static pulledVelocity(velocity, toward, dt) {
+
         if (toward === 0) {
-            return;
+            return velocity;
         }
 
-        const speed = fighter.velocityX * toward;
+        const speed = velocity * toward;
 
         if (speed >= RubberBand.MAX_PULL_SPEED) {
-            return;
+            return velocity;
         }
 
         const pulled = Math.min(
@@ -82,6 +91,6 @@ class RubberBand {
             RubberBand.MAX_PULL_SPEED
         );
 
-        fighter.mover.accelerate((pulled - speed) * toward);
+        return pulled * toward;
     }
 }
