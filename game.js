@@ -478,7 +478,7 @@ const SWORD_IMPULSE = 6;
 // encounter (anyone who stands firm keeps 0). Makes up for the speed
 // the fixed tick loses on every bounce, so a fight doesn't slowly
 // die down.
-const ENCOUNTER_PUSH = 2;
+const ENCOUNTER_PUSH = 2*3; // 2;
 
 // Burst spawned where the player and enemy collide, and the
 // (slower) speed of the trace particles a pushed player/enemy

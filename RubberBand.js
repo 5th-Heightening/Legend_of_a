@@ -15,12 +15,12 @@ class RubberBand {
     static COMBAT_ROW_DISTANCE = 1;
 
     // Cells per second, per second.
-    static ATTRACTION = 14.4;
+    static ATTRACTION = 12 + 12 + 12; // 14.4;
 
     // Cells per second - the fastest the pull alone moves a fighter
     // toward the other one. It never brakes a faster approach (e.g.
     // from the player's own impulse).
-    static MAX_PULL_SPEED = 8;
+    static MAX_PULL_SPEED = 8 + 4; // 8;
 
 
     constructor(a, b) {
