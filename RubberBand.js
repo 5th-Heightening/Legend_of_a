@@ -1,24 +1,25 @@
 // Fencing as a rubber band: while two fighters are in combat - on
 // the same row or at most COMBAT_ROW_DISTANCE rows apart - both are
-// pulled toward each other with a constant ATTRACTION. Neither has
-// a drive of its own then; all horizontal motion is one speed per
-// fighter, kept in its Push (see Push.js):
-// - Push.direction always points away from the other fighter
-// - a positive speed flies apart (a push), the pull brakes it
-// - once it drops below 0 the fighter swings back toward the other,
-//   up to MAX_PULL_SPEED
-// A hit (see checkEnemyEncounter() in game.js) just sets the speed
-// away again. Outside of combat the pull lets go: any speed toward
-// the other fighter is dropped, a push wears off as before.
+// accelerated toward each other with a constant ATTRACTION. Neither
+// has a drive of its own then; all horizontal motion is the one
+// velocity of each fighter's Mover:
+// - moving away from the other (after a hit) is braked by the pull
+// - once it turns, the fighter swings back toward the other; the
+//   pull alone accelerates it up to MAX_PULL_SPEED
+// A collision (see checkEnemyEncounter() in game.js) recalculates
+// both velocities from the current ones. Outside of combat the pull
+// lets go, and the velocity just brakes (see Enemy.js and
+// PlayerController.js).
 class RubberBand {
 
     static COMBAT_ROW_DISTANCE = 1;
 
     // Cells per second, per second.
-    static ATTRACTION = 12;
+    static ATTRACTION = 14.4;
 
     // Cells per second - the fastest the pull alone moves a fighter
-    // toward the other one.
+    // toward the other one. It never brakes a faster approach (e.g.
+    // from the player's own impulse).
     static MAX_PULL_SPEED = 8;
 
 
@@ -42,19 +43,22 @@ class RubberBand {
     }
 
 
+    // The fighter's speed toward the other one - negative while
+    // flying apart.
+    speedToward(fighter) {
+        return fighter.velocityX * this.towardOther(fighter);
+    }
+
+
     // Called every tick, before movement.
     update(dt) {
 
-        const engaged = this.engaged();
-
-        for (const fighter of [this.a, this.b]) {
-            if (engaged) {
-                this.pull(fighter, dt);
-            }
-            else {
-                RubberBand.letGo(fighter);
-            }
+        if (!this.engaged()) {
+            return;
         }
+
+        this.pull(this.a, dt);
+        this.pull(this.b, dt);
     }
 
 
@@ -67,17 +71,17 @@ class RubberBand {
             return;
         }
 
-        const push = fighter.push;
+        const speed = fighter.velocityX * toward;
 
-        push.orient(-toward);
-        push.addVelocity(toward * RubberBand.ATTRACTION * dt / 1000);
-        push.speed = Math.max(push.speed, -RubberBand.MAX_PULL_SPEED);
-    }
-
-
-    static letGo(fighter) {
-        if (fighter.push.speed < 0) {
-            fighter.push.stop();
+        if (speed >= RubberBand.MAX_PULL_SPEED) {
+            return;
         }
+
+        const pulled = Math.min(
+            speed + RubberBand.ATTRACTION * dt / 1000,
+            RubberBand.MAX_PULL_SPEED
+        );
+
+        fighter.mover.accelerate((pulled - speed) * toward);
     }
 }

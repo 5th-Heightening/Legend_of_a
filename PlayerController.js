@@ -8,10 +8,11 @@
 // recently pressed one wins; releasing it falls back to the next one
 // still held.
 //
-// While the player is being pushed, it keeps moving and steering. The
-// push wears off on its own; holding the arrow against it digs in
-// (no step, wears off faster), holding it along the push rides it
-// (steps on top of the push). See Push.wearOff().
+// The player has one horizontal speed (see Mover.js); a push is just
+// that speed after a hit. Outside of combat it brakes on its own
+// while the player keeps moving and steering: holding the arrow
+// against it digs in (no step, brakes DIG_IN_FACTOR times harder),
+// holding it along rides it (steps on top of it, RIDE_FACTOR).
 //
 // In combat (see RubberBand.js) left/right don't step. Each fresh
 // press adds COMBAT_IMPULSE to the player's speed once instead -
@@ -29,11 +30,11 @@ class PlayerController {
     // Time between steps while an arrow is held.
     static MOVE_INTERVAL = 120;
 
-    // While pushed, the push wears off by PUSH_RECOVER_AMOUNT (cells
-    // per second) every PUSH_RECOVER_INTERVAL ms on its own - faster
-    // or slower depending on the held arrow, see Push.wearOff().
-    static PUSH_RECOVER_INTERVAL = 500;
-    static PUSH_RECOVER_AMOUNT = 5;
+    // Outside of combat the speed brakes by BRAKE (cells per second,
+    // per second), scaled by the held arrow - see brake().
+    static BRAKE = 10;
+    static DIG_IN_FACTOR = 4;
+    static RIDE_FACTOR = 1;
 
     // Speed (cells per second) one left/right press adds in combat.
     static COMBAT_IMPULSE = 4;
@@ -96,21 +97,14 @@ class PlayerController {
 
         const presses = this.presses.splice(0);
         const key = presses.at(-1) ?? this.heldArrows.at(-1);
-        const push = this.player.push;
+        const mover = this.player.mover;
         const inCombat = this.rubberBand !== null && this.rubberBand.engaged();
 
         if (inCombat) {
             this.fence(presses);
         }
-        else if (push.active()) {
-            const dx = key ? PlayerController.DIRECTIONS[key].dx : 0;
-
-            push.wearOff(
-                dt,
-                dx,
-                PlayerController.PUSH_RECOVER_INTERVAL,
-                PlayerController.PUSH_RECOVER_AMOUNT
-            );
+        else {
+            this.brake(dt, key ? PlayerController.DIRECTIONS[key].dx : 0);
         }
 
         if (!key) {
@@ -126,12 +120,15 @@ class PlayerController {
             return;
         }
 
-        // Digging in: stand your ground, don't step.
-        const diggingIn = push.isAgainst(dx);
+        const drift = Math.sign(mover.velocityX);
 
-        // While pushed, the player stays turned toward where the push
-        // came from, so riding it doesn't turn its back to the enemy.
-        if (dx !== 0 && !push.active()) {
+        // Digging in: stand your ground, don't step.
+        const diggingIn = dx !== 0 && dx === -drift;
+
+        // While drifting, the player stays turned toward where the
+        // hit came from, so riding it doesn't turn its back to the
+        // enemy.
+        if (dx !== 0 && drift === 0) {
             this.player.facing = dx < 0 ? "left" : "right";
         }
 
@@ -162,6 +159,29 @@ class PlayerController {
     }
 
 
+    // Outside of combat: brakes the speed toward 0, harder when the
+    // held arrow dx (-1/0/1) points against it, see BRAKE.
+    brake(dt, dx) {
+
+        const drift = Math.sign(this.player.velocityX);
+
+        if (drift === 0) {
+            return;
+        }
+
+        let factor = 1;
+
+        if (dx === -drift) {
+            factor = PlayerController.DIG_IN_FACTOR;
+        }
+        else if (dx === drift) {
+            factor = PlayerController.RIDE_FACTOR;
+        }
+
+        this.player.mover.brake(PlayerController.BRAKE * factor * dt / 1000);
+    }
+
+
     // Combat: every fresh left/right press adds COMBAT_IMPULSE to the
     // speed, and the player turns toward the enemy.
     fence(presses) {
@@ -170,7 +190,7 @@ class PlayerController {
             const { dx } = PlayerController.DIRECTIONS[key];
 
             if (dx !== 0) {
-                this.player.push.addVelocity(dx * PlayerController.COMBAT_IMPULSE);
+                this.player.mover.accelerate(dx * PlayerController.COMBAT_IMPULSE);
             }
         }
 

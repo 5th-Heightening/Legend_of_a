@@ -20,8 +20,8 @@ class MovingObject {
     }
 
 
-    // Knockback - see Push.js.
-    get push() {
-        return this.mover.push;
+    // The one horizontal speed, cells per second - see Mover.js.
+    get velocityX() {
+        return this.mover.velocityX;
     }
 }

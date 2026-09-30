@@ -1,12 +1,17 @@
 // Movement state of one object on the grid. The owner's x/y always
 // stay whole cells; the Mover keeps the smooth rest.
 //
-// Three things can make an object move, and they add up:
-// - its own drive: a velocity in cells per second, set every tick by
-//   whatever steers it (AI, ...) - see setVelocity()
-// - single queued steps, for grid-exact movement like the player's
-//   walk - see queueStep()
-// - a knockback (Push, horizontal only)
+// Horizontally there is exactly one speed, velocityX (cells per
+// second, signed). There is no separate knockback: a push is just
+// a velocity pointing away from whoever pushed. Whatever acts on
+// the object changes that one value:
+// - its own drive (the enemy's patrol) - see setVelocity()
+// - the rubber band's pull in combat - see RubberBand.js
+// - a collision, which sets it anew - see knock()
+// - braking - see brake()
+//
+// On top of that, single queued steps for grid-exact movement like
+// the player's walk - see queueStep().
 //
 // Each tick advance(dt) turns all of that into whole cells to move.
 // The MovementSystem then walks the owner there one cell at a time,
@@ -20,11 +25,9 @@ class Mover {
 
     constructor() {
 
-        // Own drive, cells per second.
+        // Cells per second.
         this.velocityX = 0;
         this.velocityY = 0;
-
-        this.push = new Push();
 
         // Hidden sub-cell position relative to the owner's cell,
         // always in (-1, 1).
@@ -35,14 +38,45 @@ class Mover {
         // velocities - see queueStep().
         this.queuedX = 0;
         this.queuedY = 0;
-
-        this.wasPushed = false;
     }
 
 
     setVelocity(velocityX, velocityY) {
         this.velocityX = velocityX;
         this.velocityY = velocityY;
+    }
+
+
+    // Adds a signed horizontal velocity (cells per second).
+    accelerate(velocityX) {
+        this.velocityX += velocityX;
+    }
+
+
+    // The outcome of a collision: sets the horizontal speed anew and
+    // forgets the half-crossed cell.
+    knock(velocityX) {
+        this.velocityX = velocityX;
+        this.offsetX = 0;
+    }
+
+
+    // Takes `amount` (cells per second) off the horizontal speed,
+    // stopping at 0 instead of turning around.
+    brake(amount) {
+
+        if (Math.abs(this.velocityX) <= amount) {
+            this.stop();
+            return;
+        }
+
+        this.velocityX -= Math.sign(this.velocityX) * amount;
+    }
+
+
+    stop() {
+        this.velocityX = 0;
+        this.offsetX = 0;
     }
 
 
@@ -54,14 +88,8 @@ class Mover {
     }
 
 
-    startPush(direction, speed) {
-        this.push.start(direction, speed);
-        this.offsetX = 0;
-    }
-
-
-    // Forgets any half-crossed cell - e.g. after turning around, or
-    // after running into something.
+    // Forgets any half-crossed cell - e.g. after running into
+    // something.
     resetOffset() {
         this.offsetX = 0;
         this.offsetY = 0;
@@ -77,19 +105,7 @@ class Mover {
 
         const seconds = dt / 1000;
 
-        // A push that just stopped leaves no half-crossed cell
-        // behind for the drive to inherit. (A push turning into a
-        // pull back - see RubberBand.js - keeps it, the motion is
-        // continuous.)
-        const pushed = this.push.velocity !== 0;
-
-        if (this.wasPushed && !pushed) {
-            this.resetOffset();
-        }
-
-        this.wasPushed = pushed;
-
-        this.offsetX += (this.velocityX + this.push.velocity) * seconds;
+        this.offsetX += this.velocityX * seconds;
         this.offsetY += this.velocityY * seconds;
 
         const cellsX = Mover.wholeCells(this.offsetX);

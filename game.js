@@ -87,11 +87,16 @@ let gameStarted = false;
 // Game objects
 // ==================================================
 
+// Start positions: both on the same row, on opposite sides.
+const START_ROW = 12;
+const PLAYER_START_X = 35;
+const ENEMY_START_X = 5;
+
 const ground = new Ground();
-const player = new Player(15, 10);
+const player = new Player(PLAYER_START_X, START_ROW);
 const playerController = new PlayerController(player);
 
-const enemy = new Enemy(5, 12, 5, 35, player);
+const enemy = new Enemy(ENEMY_START_X, START_ROW, 5, 35, player);
 
 // In combat, player and enemy pull on each other - see RubberBand.js.
 const rubberBand = new RubberBand(player, enemy);
@@ -220,21 +225,32 @@ function enemyFitsAt(x, y) {
 // a time, in this order - the player first.
 //
 // - Player: stays inside the viewport and is blocked by scenery.
-//   Walking into them just stops, but a push that would carry it
-//   into them kills it - see killPlayer(). While pushed it can still
-//   step; only a step in the push direction can kill. Every step
-//   shifts the parallax.
-// - Enemy: its own steps follow Enemy.allowsStep() (never onto or
-//   past the player while chasing). A push that would carry it off
-//   the display or into scenery kills it instead - see vanishEnemy().
+// - Enemy: stays inside the display and is blocked by scenery.
+// - Both: running into the border/scenery at LETHAL_SPEED or more
+//   kills (killPlayer(), vanishEnemy()) - no matter whether that
+//   speed comes from a hit, the rubber band's pull or the player's
+//   own impulse. Slower, it just stops the speed. Walking steps
+//   (the player's) never kill.
 // - Neither can step onto the other's cell - they fight by touching
-//   (see checkEnemyEncounter()), not by overlapping.
+//   (see checkEnemyEncounter()), not by overlapping. Being blocked by
+//   the other's body leaves the speed alone: the encounter
+//   recalculates it.
 //
-// Both leave a trace of particles behind while pushed.
+// Both leave a trace of particles behind while that fast.
 // ==================================================
+
+// Cells per second.
+const LETHAL_SPEED = 5;
+
 
 function occupies(object, x, y) {
     return object.alive !== false && object.x === x && object.y === y;
+}
+
+
+// Fast enough to die running into something.
+function isFlying(object) {
+    return Math.abs(object.velocityX) >= LETHAL_SPEED;
 }
 
 
@@ -248,24 +264,26 @@ function registerMovement() {
             !wouldCollideAt(x, y) &&
             !occupies(enemy, x, y),
 
-        // Only a push into the border/scenery kills - walking into
-        // them (also sideways while pushed), or being pushed against
-        // the enemy, just stops. Riding the push into them does kill.
-        // Being pulled into anything (see RubberBand.js) just comes to
-        // rest there.
+        // Only a step along the player's own speed counts - walking
+        // into something (also sideways, or against the speed) just
+        // doesn't happen. Riding the speed into it does kill.
         onBlocked: (x, y) => {
-            const alongPush = Math.sign(x - player.x) === player.push.direction;
+            const along = Math.sign(x - player.x) === Math.sign(player.velocityX);
 
-            if (player.push.active() && alongPush && !occupies(enemy, x, y)) {
+            if (x === player.x || !along || occupies(enemy, x, y)) {
+                return;
+            }
+
+            if (isFlying(player)) {
                 killPlayer();
             }
-            else if (x !== player.x && !player.push.active()) {
-                player.push.stop();
+            else {
+                player.mover.stop();
             }
         },
 
         onMoved: (fromX, fromY) => {
-            if (player.push.active()) {
+            if (isFlying(player)) {
                 leavePushTrace(fromX, fromY);
             }
 
@@ -275,29 +293,24 @@ function registerMovement() {
 
     movement.add(enemy, {
 
-        canEnter: (x, y) => {
+        canEnter: (x, y) => !occupies(player, x, y) && enemyFitsAt(x, y),
+
+        onBlocked: (x, y) => {
 
             if (occupies(player, x, y)) {
-                return false;
+                return;
             }
 
-            return enemy.push.active() ? enemyFitsAt(x, y) : enemy.allowsStep(x);
-        },
-
-        // Only a push into the border/scenery kills - bumping into
-        // the player just stops the step, and a pull (see
-        // RubberBand.js) comes to rest there.
-        onBlocked: (x, y) => {
-            if (enemy.push.active() && !enemyFitsAt(x, y)) {
+            if (isFlying(enemy)) {
                 vanishEnemy();
             }
-            else if (!enemy.push.active()) {
-                enemy.push.stop();
+            else {
+                enemy.bump();
             }
         },
 
         onMoved: (fromX, fromY) => {
-            if (enemy.push.active()) {
+            if (isFlying(enemy)) {
                 leavePushTrace(fromX, fromY);
             }
         }
@@ -382,7 +395,8 @@ const ENEMY_SWORD_COOLDOWN = 800;
 // able to fight and not still cooling down.
 function updateEnemySword() {
 
-    if (!enemy.alive || enemy.sword || enemy.push.active()) {
+    // Not while flying away from the player.
+    if (!enemy.alive || enemy.sword || rubberBand.speedToward(enemy) < 0) {
         return;
     }
 
@@ -409,37 +423,33 @@ function updateEnemySword() {
 
 
 // ==================================================
-// Push: knockback from running into the enemy
+// Encounter: player and enemy run into each other
 //
-// Both player and enemy carry a Push (see Push.js, via their Mover):
-// a speed in cells per second and a direction, away from the other
-// side. In combat the rubber band brakes it and pulls both back
-// together (see RubberBand.js). Outside of combat the player's wears
-// off (see PlayerController.js), the enemy recovers on its own (see
-// Enemy.update()). A push into the border/environment kills (see the
-// movement rules).
+// Both have one horizontal speed (see Mover.js) and nothing else - a
+// push is just that speed pointing away from the other. Every
+// encounter recalculates both speeds from the current ones. In
+// combat the rubber band then brakes them and pulls both back
+// together (see RubberBand.js); outside of combat they brake (see
+// PlayerController.js, Enemy.update()).
 //
-// Combat resolution, decided by both sides' weapons at the moment
-// of collision. The enemy's speed is how fast it's pulled toward the
-// player right now (enemy.speed); the player's is PLAYER_SWORD_SPEED, the force of
-// its swing:
-// - shield up: a reflector - the player takes nothing, the
-//   enemy bounces off with PUSH_INITIAL_SPEED
-// - both swords drawn: an exchange - each side is knocked back
-//   with the *other* side's speed
-// - only the player's sword drawn: the player takes nothing, the
-//   enemy bounces off with the sum of both speeds
-// - only the enemy's sword drawn: the player is knocked back with
-//   PUSH_INITIAL_SPEED plus the enemy's speed
-// - neither armed: only the player is knocked back, with
-//   PUSH_INITIAL_SPEED
+// Each side's speed toward the other at the moment of contact adds
+// up to the closing speed. Decided by both sides' weapons:
+// - shield up: a reflector - the player stands firm (speed 0), the
+//   enemy bounces off with the whole closing speed
+// - both swords drawn: a reflection - each side keeps its own speed,
+//   turned around (multiplied by -1)
+// - only the player's sword drawn: the player stands firm, the enemy
+//   bounces off with the closing speed
+// - only the enemy's sword drawn: the enemy stands firm, the player
+//   bounces off with the closing speed plus SWORD_IMPULSE
+// - neither armed: the bodies just exchange their speeds
 // Shield wins if somehow both shield and sword are active at
 // once (blocking takes priority over attacking).
 // ==================================================
 
-// Cells per second.
-const PUSH_INITIAL_SPEED = 15;
-const PLAYER_SWORD_SPEED = 15;
+// Cells per second the enemy's sword adds to the player's speed when
+// it hits.
+const SWORD_IMPULSE = 6;
 
 // Burst spawned where the player and enemy collide, and the
 // (slower) speed of the trace particles a pushed player/enemy
@@ -463,7 +473,7 @@ function playDeathJump(character) {
 // the border/scenery it hit.
 function vanishEnemy() {
     enemy.alive = false;
-    enemy.push.stop();
+    enemy.mover.stop();
 
     if (enemy.sword) {
         const sword = enemy.sword;
@@ -484,7 +494,7 @@ function vanishEnemy() {
 // patrolling (see Enemy.inCombat()).
 function killPlayer() {
     player.alive = false;
-    player.push.stop();
+    player.mover.stop();
 
     if (player.sword) {
         world.remove(player.sword);
@@ -541,10 +551,9 @@ function findContact(partsA, partsB) {
 
 // Checked once per tick, after everything has moved. Fires as soon
 // as any part of the player (body, sword, shield) touches any part
-// of the enemy (body, sword) - see findContact(). Only fires when
-// neither side is already mid-push - otherwise every tick of contact
-// would refresh it to full speed and neither would ever finish
-// recovering/flying apart.
+// of the enemy (body, sword) - see findContact() - while the two are
+// closing in on each other. Once they fly apart it can't fire again,
+// so staying in contact doesn't keep re-triggering it.
 //
 // Everything directional follows from one `enemySide`: who is
 // pushed which way, and whether each side's weapon actually faces
@@ -553,10 +562,6 @@ function findContact(partsA, partsB) {
 function checkEnemyEncounter() {
 
     if (!enemy.alive || !player.alive) {
-        return;
-    }
-
-    if (player.push.active() || enemy.push.active()) {
         return;
     }
 
@@ -572,10 +577,6 @@ function checkEnemyEncounter() {
         return;
     }
 
-    // Burst at the player's touching part - sword tip, shield or body.
-    // Deactivated for debugging!!
-    // spawnParticles(contact.a.x, contact.a.y, COLLISION_PARTICLE_COUNT);
-
     const playerFacing = player.facing === "left" ? -1 : 1;
 
     // Which side of the player the enemy is on (-1 left, 1 right).
@@ -586,8 +587,18 @@ function checkEnemyEncounter() {
         Math.sign(enemy.previousX - player.previousX) ||
         playerFacing;
 
-    const awayFromEnemy = -enemySide;
-    const awayFromPlayer = enemySide;
+    // Each side's speed toward the other, negative while moving away.
+    const playerApproach = player.velocityX * enemySide;
+    const enemyApproach = -enemy.velocityX * enemySide;
+    const closing = playerApproach + enemyApproach;
+
+    if (closing <= 0) {
+        return;
+    }
+
+    // Burst at the player's touching part - sword tip, shield or body.
+    // Deactivated for debugging!!
+    // spawnParticles(contact.a.x, contact.a.y, COLLISION_PARTICLE_COUNT);
 
     const playerFacesEnemy = playerFacing === enemySide;
     const enemyFacesPlayer = enemy.direction === -enemySide;
@@ -596,22 +607,33 @@ function checkEnemyEncounter() {
     const playerSword = player.sword && playerFacesEnemy;
     const enemySword = enemyStrike && enemyFacesPlayer;
 
+    // New speeds away from the other side.
+    let playerAway;
+    let enemyAway;
+
     if (shield) {
-        enemy.mover.startPush(awayFromPlayer, PUSH_INITIAL_SPEED);
+        playerAway = 0;
+        enemyAway = closing;
     }
     else if (playerSword && enemySword) {
-        player.mover.startPush(awayFromEnemy, enemy.speed);
-        enemy.mover.startPush(awayFromPlayer, PLAYER_SWORD_SPEED);
+        playerAway = playerApproach;
+        enemyAway = enemyApproach;
     }
     else if (playerSword) {
-        enemy.mover.startPush(awayFromPlayer, PLAYER_SWORD_SPEED + enemy.speed);
+        playerAway = 0;
+        enemyAway = closing;
     }
     else if (enemySword) {
-        player.mover.startPush(awayFromEnemy, PUSH_INITIAL_SPEED + enemy.speed);
+        playerAway = closing + SWORD_IMPULSE;
+        enemyAway = 0;
     }
     else {
-        player.mover.startPush(awayFromEnemy, PUSH_INITIAL_SPEED);
+        playerAway = enemyApproach;
+        enemyAway = playerApproach;
     }
+
+    player.mover.knock(-enemySide * playerAway);
+    enemy.mover.knock(enemySide * enemyAway);
 }
 
 
