@@ -85,9 +85,13 @@ class RubberBand {
         if (speed >= RubberBand.MAX_PULL_SPEED) {
             return velocity;
         }
+        
+        // TODO: This should have smoothed out the acceleration, but it didn't quite looked good
+        // The calculation isnt working as intended, check the sign of toward and velocity
+        const smoothFactor = 1; // Math.max(0, 1 - velocity / RubberBand.MAX_PULL_SPEED*toward);
 
         const pulled = Math.min(
-            speed + RubberBand.ATTRACTION * dt / 1000,
+            speed + smoothFactor * RubberBand.ATTRACTION * dt / 1000,
             RubberBand.MAX_PULL_SPEED
         );
 
