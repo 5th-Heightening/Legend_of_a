@@ -103,6 +103,10 @@ const rubberBand = new RubberBand(player, enemy);
 playerController.rubberBand = rubberBand;
 enemy.rubberBand = rubberBand;
 
+// One of the two fighters has the initiative, marked with a "!"
+// above it - see Initiative.js. The enemy starts with it.
+const initiative = new Initiative(enemy);
+
 const tree = new Tree({
     topLeft: { x: 3, y: 3 },
     topRight: { x: 30, y: 3 },
@@ -335,6 +339,7 @@ function startGame() {
     world.add(tree);
     world.add(enemy);
     world.add(player);
+    world.add(initiative);
 
     registerMovement();
     updateParallax();

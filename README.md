@@ -32,6 +32,7 @@ by `SplashScreen.js`/`SpeechBubble.js` before this split:
 | [Ground.js](Ground.js) | Background floor plane. |
 | [Enemy.js](Enemy.js) | Patrolling/combat enemy (`extends MovingObject`). |
 | [EnemySword.js](EnemySword.js) | The enemy's `-` sword, glued to the enemy — see "Enemy" below. |
+| [Initiative.js](Initiative.js) | Which fighter has the initiative, drawn as a `!` above it — see "Initiative" below. |
 | [DeathJump.js](DeathJump.js) | Death feedback: a dying character's copy jumps up and falls out of the play area — see "Push" below. |
 | [Particle.js](Particle.js) | Short-lived drifting particle that decays through a random character sequence — see "Particles" below. |
 | [Squiggle.js](Squiggle.js) | Decorative random-letter string grown from the player while `D` is held — see "Squiggle" below. |
@@ -57,7 +58,7 @@ fails at the first `new` call, not at parse time:
    `ParallaxObject` to already exist.
 3. `Mover.js`, `MovingObject.js`, `MovementSystem.js`,
    `RubberBand.js`, `ContactPredictor.js`, then `Player.js`, `PlayerController.js`, `Sword.js`, `Shield.js`,
-   `Ground.js`, `Enemy.js`, `EnemySword.js`, `Squiggle.js`,
+   `Ground.js`, `Enemy.js`, `EnemySword.js`, `Initiative.js`, `Squiggle.js`,
    `BlinkingText.js`, `SplashScreen.js`. `MovingObject.js` must come
    before `Player.js`/`Enemy.js` (they `extends MovingObject`).
    `Mover.js` only needs to exist by the time something is
@@ -398,6 +399,22 @@ The enemy isn't in `parallaxObjects` (it has no corners, its position
 isn't a function of the player) and isn't checked in `wouldCollideAt`.
 Its body blocks the player through the movement rules instead (see
 "Movement"). Touching it triggers the push, below.
+
+## Initiative
+
+Exactly one of the two fighters has the initiative. `initiative`
+(an `Initiative`, [Initiative.js](Initiative.js), created in
+[game.js](game.js)) holds it in `holder`, and the **enemy starts
+with it**. `give(character)` hands it over, `has(character)` asks.
+
+It's also its own renderable: an `Initiative.MARK` (`"!"`) at
+`MARK_DX`/`MARK_DY` (default: directly above the holder), glued to
+the holder via getters like the weapons. It's added to the world in
+`startGame()` and draws nothing while its holder is dead. With
+`z = 24` it sits just below the enemy's windup `"|"` (`z = 25`),
+which uses the same cell, so the attack warning stays readable.
+
+Nothing hands the initiative over yet — that's still to be decided.
 
 Not done yet, deliberately out of scope for now:
 
