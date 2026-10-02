@@ -347,19 +347,30 @@ function startGame() {
 
 
 // ==================================================
-// Combat: sword swing (W, one-shot) and shield (A, held)
+// Combat: sword swing (A/W/D, one-shot) and shield (S, held)
+//
+// Each sword key swings the sword in one position (see Sword.js).
 // ==================================================
 
-const SWORD_FRAME_DURATION = 120;
+const SWORD_KEYS = {
+    a: "\\",
+    w: "-",
+    d: "/"
+};
 
-function swingSword() {
+const SHIELD_KEY = "s";
+
+// How long a swing stays out, in ms.
+const SWORD_DURATION = 240;
+
+function swingSword(position) {
 
     // A swing already in progress isn't interrupted or restarted.
     if (!player.alive || player.sword) {
         return;
     }
 
-    player.sword = new Sword(player, SWORD_FRAME_DURATION);
+    player.sword = new Sword(player, position, SWORD_DURATION);
     world.add(player.sword);
 }
 
@@ -391,17 +402,17 @@ function hideShield() {
 //
 // The enemy times its attack: every tick it predicts when its
 // sword tip would touch the player (see ContactPredictor.js) and
-// lifts the sword ("|", see EnemySword.js) just early enough that
-// the strike ("-") is out at that moment - ENEMY_SWORD_WINDUP ms of
-// warning, then the strike ENEMY_SWORD_LEAD ms or less before the
-// predicted contact. It puts the sword away again after
-// ENEMY_SWORD_DURATION, and waits ENEMY_SWORD_COOLDOWN before it can
-// lift it again.
+// draws the sword (see EnemySword.js) ENEMY_SWORD_LEAD ms or less
+// before the predicted contact - no windup, no warning. While it's
+// out, the sword switches to another position every
+// ENEMY_SWORD_POSITION_INTERVAL ms. It puts the sword away again
+// after ENEMY_SWORD_DURATION, and waits ENEMY_SWORD_COOLDOWN before
+// it can draw again.
 // ==================================================
 
-const ENEMY_SWORD_WINDUP = 200;
-const ENEMY_SWORD_DURATION = 700;
-const ENEMY_SWORD_COOLDOWN = 800;
+const ENEMY_SWORD_DURATION = 6000;
+const ENEMY_SWORD_COOLDOWN = 0;
+const ENEMY_SWORD_POSITION_INTERVAL = 2000;
 
 // Latest the strike comes out before the predicted contact (ms).
 // At least one TICK_INTERVAL, or the right moment could fall
@@ -442,16 +453,16 @@ function updateEnemySword() {
         CONTACT_DISTANCE
     );
 
-    // No contact coming, or too early / already too late to wind up.
-    if (eta === null || eta < ENEMY_SWORD_WINDUP || eta > ENEMY_SWORD_WINDUP + ENEMY_SWORD_LEAD) {
+    // No contact coming, or still too early.
+    if (eta === null || eta > ENEMY_SWORD_LEAD) {
         return;
     }
 
     enemy.sword = new EnemySword(
         enemy,
-        ENEMY_SWORD_WINDUP,
         ENEMY_SWORD_DURATION,
-        ENEMY_SWORD_COOLDOWN
+        ENEMY_SWORD_COOLDOWN,
+        ENEMY_SWORD_POSITION_INTERVAL
     );
     world.add(enemy.sword);
 }
@@ -471,8 +482,13 @@ function updateEnemySword() {
 // up to the closing speed. Decided by both sides' weapons:
 // - shield up: a reflector - the player stands firm (speed 0), the
 //   enemy bounces off with the whole closing speed
-// - both swords drawn: a reflection - each side keeps its own speed,
-//   turned around (multiplied by -1)
+// - both swords drawn, matching positions (mirrored, see
+//   Sword.matches(): "/" meets "\", "-" meets "-"): a
+//   reflection - each side keeps its own speed, turned around
+//   (multiplied by -1) - and the initiative goes to the other side
+// - both swords drawn, different positions: whoever has the
+//   initiative stands firm, the other bounces off with the closing
+//   speed
 // - only the player's sword drawn: the player stands firm, the enemy
 //   bounces off with the closing speed
 // - only the enemy's sword drawn: the enemy stands firm, the player
@@ -606,7 +622,6 @@ function checkEnemyEncounter() {
         return;
     }
 
-    // A sword still being lifted (windup) doesn't count yet.
     const enemyStrike = enemy.sword && enemy.sword.drawn ? enemy.sword : null;
 
     const contact = findContact(
@@ -657,8 +672,20 @@ function checkEnemyEncounter() {
         enemyAway = closing;
     }
     else if (playerSword && enemySword) {
-        playerAway = playerApproach;
-        enemyAway = enemyApproach;
+
+        if (Sword.matches(player.sword.position, enemyStrike.position)) {
+            playerAway = playerApproach;
+            enemyAway = enemyApproach;
+            initiative.give(initiative.has(player) ? enemy : player);
+        }
+        else if (initiative.has(player)) {
+            playerAway = 0;
+            enemyAway = closing;
+        }
+        else {
+            playerAway = closing;
+            enemyAway = 0;
+        }
     }
     else if (playerSword) {
         playerAway = 0;
@@ -708,12 +735,14 @@ function spawnParticles(x, y, count, speed = PARTICLE_SPEED, gravitation = true)
 
 
 // ==================================================
-// Squiggle (D, held)
+// Squiggle (Q, held)
 //
 // Decorative only - a string of random letters (see Squiggle.js)
-// grows from the player while "D" is held and vanishes on release.
-// Nothing collides with it.
+// grows from the player while SQUIGGLE_KEY is held and vanishes on
+// release. Nothing collides with it.
 // ==================================================
+
+const SQUIGGLE_KEY = "q";
 
 function startSquiggle() {
 
@@ -757,23 +786,23 @@ document.addEventListener("keydown", event => {
 
     const key = event.key.toLowerCase();
 
-    if (key === "w") {
+    if (key in SWORD_KEYS) {
 
         // Ignore auto-repeat while the key is held - one press,
         // one swing.
         if (!event.repeat) {
-            swingSword();
+            swingSword(SWORD_KEYS[key]);
         }
 
         return;
     }
 
-    if (key === "a") {
+    if (key === SHIELD_KEY) {
         showShield();
         return;
     }
 
-    if (key === "d") {
+    if (key === SQUIGGLE_KEY) {
         startSquiggle();
         return;
     }
@@ -788,11 +817,11 @@ document.addEventListener("keyup", event => {
 
     const key = event.key.toLowerCase();
 
-    if (key === "a") {
+    if (key === SHIELD_KEY) {
         hideShield();
     }
 
-    if (key === "d") {
+    if (key === SQUIGGLE_KEY) {
         stopSquiggle();
     }
 

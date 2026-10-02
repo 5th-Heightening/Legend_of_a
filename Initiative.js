@@ -2,9 +2,6 @@
 // it at a time; give() hands it over. Shown as a MARK above the
 // holder, glued to it via getters like the weapons, so it moves
 // along. Hidden while the holder is dead.
-//
-// Drawn below the enemy's lifted sword (z), which sits on the same
-// cell - the windup warning wins over the mark.
 class Initiative {
 
     static MARK = "!";

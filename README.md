@@ -35,7 +35,7 @@ by `SplashScreen.js`/`SpeechBubble.js` before this split:
 | [Initiative.js](Initiative.js) | Which fighter has the initiative, drawn as a `!` above it — see "Initiative" below. |
 | [DeathJump.js](DeathJump.js) | Death feedback: a dying character's copy jumps up and falls out of the play area — see "Push" below. |
 | [Particle.js](Particle.js) | Short-lived drifting particle that decays through a random character sequence — see "Particles" below. |
-| [Squiggle.js](Squiggle.js) | Decorative random-letter string grown from the player while `D` is held — see "Squiggle" below. |
+| [Squiggle.js](Squiggle.js) | Decorative random-letter string grown from the player while `Q` is held — see "Squiggle" below. |
 | [BlinkingText.js](BlinkingText.js) | The "Press any key" title-screen prompt. |
 | [SplashScreen.js](SplashScreen.js) | Title-screen logo. |
 | [theme.js](theme.js) | Light/dark mode toggle — entirely independent of the game, see "Theme toggle" below. |
@@ -166,7 +166,7 @@ One tick, in this order:
 
 Key handlers never move or render anything themselves. Arrow keys are
 only recorded (the controller acts on them on the next tick), and
-`W`/`A`/`D` create their objects right away, but those are drawn and
+the sword/shield/squiggle keys create their objects right away, but those are drawn and
 checked from the next tick on. Input is therefore at most one tick
 (40ms) late, and always on the beat.
 
@@ -309,31 +309,31 @@ also add/remove them from the renderer) rather than module-level
 variables — "which weapon is out" is state that belongs to the
 character.
 
-- **`Sword`** (`W`, in the `keydown` handler's `swingSword()`) is a
-  one-shot, tick-driven animation: on press it's added to the world;
-  its `update(dt)` flips `frame` from `"slash"` to `"dash"` once it has
-  been out for `SWORD_FRAME_DURATION` (120ms = 3 ticks), and after
-  another 120ms it sets `alive = false` and clears `player.sword`
-  itself, so the world drops it. `player.sword` doubles as a
-  re-entrancy guard — `swingSword()` no-ops while it's non-null — and
-  the `keydown` handler also checks `!event.repeat`, so holding `W`
-  down triggers exactly one swing per physical press, not continuous
-  OS key-repeat swings. Like `Shield`, its `x`/`y` and (while still in
-  the `"slash"` frame) its `"/"`/`"\"` character are getters reading
-  `player.x`/`player.y`/`player.facing` live, so a swing that outlasts
-  a move — or a facing change — stays glued to the player instead of
-  hanging in the air at wherever the swing started.
-- **`Shield`** (`A`, held) is the opposite: no timer, glued to the
+- **`Sword`** (`A`/`W`/`D`, `SWORD_KEYS` in [game.js](game.js), in the
+  `keydown` handler's `swingSword(position)`) is a one-shot swing in
+  one of three **positions**, `Sword.POSITIONS`: `A` → `"\"`,
+  `W` → `"-"`, `D` → `"/"`. The position is shown as-is (not
+  mirrored by facing) and stays for `SWORD_DURATION` (240ms = 6
+  ticks); then the sword sets `alive = false` and clears
+  `player.sword` itself, so the world drops it. `player.sword`
+  doubles as a re-entrancy guard — `swingSword()` no-ops while it's
+  non-null — and the `keydown` handler also checks `!event.repeat`,
+  so holding a sword key triggers exactly one swing per physical
+  press. Like `Shield`, its `x`/`y` are getters reading
+  `player.x`/`player.y`/`player.facing` live, so it stays glued to
+  the player. Whether its position matches the enemy's decides a
+  sword clash (see "Push").
+- **`Shield`** (`S`, `SHIELD_KEY`, held) is the opposite: no timer, glued to the
   player for as long as the key is down. Its `x`/`y`/`getAscii()` are
   getters reading `player.x`/`player.y`/`player.facing` live, so it
-  stays correctly positioned through any moves made while `A` is held,
+  stays correctly positioned through any moves made while `S` is held,
   with no per-move update needed. `showShield()` on `keydown` and
   `hideShield()` on a separate `keyup` listener add/remove it;
   `showShield()` is idempotent (checks `player.shield` first) so
-  repeated auto-repeat keydowns while holding `A` are harmless.
+  repeated auto-repeat keydowns while holding `S` are harmless.
   Character is `"["` when facing left, `"]"` when facing right.
 
-Known gap: if the browser never delivers a `keyup` for `A` (e.g. focus
+Known gap: if the browser never delivers a `keyup` for `S` (e.g. focus
 leaves the page while it's held), the shield can get stuck on. There's
 no blur-handler safety net for that yet.
 
@@ -375,24 +375,19 @@ forward tick by tick, up to `ContactPredictor.LOOKAHEAD` (3s) — the
 same math as the game, so the prediction holds as long as nobody
 presses a key or hits anything.
 
-The enemy starts an `EnemySword` (`z = 25`) once that time is between
-`ENEMY_SWORD_WINDUP` and `ENEMY_SWORD_WINDUP + ENEMY_SWORD_LEAD`
-(80ms), so the strike comes out just before contact. Not while the
-predicted contact is too far off, already too close to wind up, or
-`enemy.swordCooldown` hasn't run down to 0. The sword has two phases:
-
-1. **Windup** (`ENEMY_SWORD_WINDUP`, 200ms): the enemy lifts it, a
-   `"|"` at `EnemySword.WINDUP_DX`/`WINDUP_DY` from the enemy
-   (default: directly above it). A warning only, it doesn't touch or
-   hit anything.
-2. **Strike** (`ENEMY_SWORD_DURATION`, 700ms): a `"-"` one tile in
-   front of the enemy along `direction`. Only now is
-   `enemy.sword.drawn` true, and only then does it count in combat.
+The enemy draws an `EnemySword` (`z = 25`) once that time is
+`ENEMY_SWORD_LEAD` (80ms) or less, so the strike comes out just before
+contact — there is no windup or warning. Not while the predicted
+contact is too far off, or `enemy.swordCooldown` hasn't run down to 0.
+The sword shows a random position (see "Push") one tile in front of
+the enemy along `direction` for `ENEMY_SWORD_DURATION` (6s), and
+counts in combat for that whole time. Every
+`ENEMY_SWORD_POSITION_INTERVAL` (2s) it switches to another position,
+picked at random from the other two.
 
 After the strike, `sheathe()` clears `enemy.sword` and sets
-`enemy.swordCooldown` to `ENEMY_SWORD_COOLDOWN` (800ms), counted down
-in `Enemy.update()`. `enemy.sword` is the current sword (in either
-phase) or `null`, mirroring `player.sword`. Whether it's drawn at the
+`enemy.swordCooldown` to `ENEMY_SWORD_COOLDOWN` (0 — no cooldown), counted down
+in `Enemy.update()`. `enemy.sword` is the current sword or `null`, mirroring `player.sword`. Whether it's drawn at the
 moment of impact changes the collision outcome (see "Push" below).
 
 The enemy isn't in `parallaxObjects` (it has no corners, its position
@@ -410,11 +405,10 @@ with it**. `give(character)` hands it over, `has(character)` asks.
 It's also its own renderable: an `Initiative.MARK` (`"!"`) at
 `MARK_DX`/`MARK_DY` (default: directly above the holder), glued to
 the holder via getters like the weapons. It's added to the world in
-`startGame()` and draws nothing while its holder is dead. With
-`z = 24` it sits just below the enemy's windup `"|"` (`z = 25`),
-which uses the same cell, so the attack warning stays readable.
+`startGame()` and draws nothing while its holder is dead.
 
-Nothing hands the initiative over yet — that's still to be decided.
+It changes hands on a sword clash with matching positions (see
+"Push").
 
 Not done yet, deliberately out of scope for now:
 
@@ -436,10 +430,20 @@ from the other side):
 | Player | Enemy | Player result | Enemy result |
 |---|---|---|---|
 | shield up (reflector) | any | 0 (stands firm) | closing speed |
-| sword drawn | sword drawn (reflection) | own speed × -1 | own speed × -1 |
+| sword drawn | sword drawn, **matching position** (reflection) | own speed × -1 | own speed × -1 |
+| sword drawn | sword drawn, **non-matching position** | 0 if the player has the initiative, else closing speed | 0 if the enemy has the initiative, else closing speed |
 | sword drawn | unarmed | 0 | closing speed |
 | bare-handed | sword drawn | closing speed + `SWORD_IMPULSE` | 0 |
 | bare-handed | unarmed | enemy's speed | player's speed (plain exchange) |
+
+**Sword clash:** every enemy attack picks a random position
+(`Sword.POSITIONS`: `"/"`, `"\"`, `"-"`). The fighters face each
+other, so positions are compared mirrored (`Sword.matches()`,
+`Sword.MIRRORED`): `"/"` meets `"\"` and `"-"` meets `"-"` match;
+`"/"` meets `"/"` and `"\"` meets `"\"` don't. Matching positions
+reflect both fighters *and* hand the initiative to the other side (see
+"Initiative"). Non-matching positions push back only whoever doesn't
+hold the initiative.
 
 `SWORD_IMPULSE` (6 cells/s, in [game.js](game.js)) is the force the
 enemy's sword adds to the player when it hits. The player's sword
@@ -579,7 +583,7 @@ Currently spawned in two places:
 
 ## Squiggle
 
-Holding `D` grows a `Squiggle` ([Squiggle.js](Squiggle.js), `z = 22`,
+Holding `Q` (`SQUIGGLE_KEY`) grows a `Squiggle` ([Squiggle.js](Squiggle.js), `z = 22`,
 referenced as `player.squiggle`) from the tile right of the player:
 one random letter from `Squiggle.CHARACTERS` (`"=-~+"`) every
 `Squiggle.GROW_INTERVAL` (5ms), up to `Squiggle.MAX_LENGTH` (20).
@@ -590,7 +594,7 @@ changes (randomly one up, one down, or the same) on every
 `Squiggle.DY_STEP_EVERY` (2nd) letter. Every tick re-rolls
 the whole string (letters and path) at the new length; once it
 reaches `Squiggle.MAX_LENGTH` it keeps being re-rolled at that
-length, so it flickers for as long as `D` is held. It's glued to the player via getters
+length, so it flickers for as long as `Q` is held. It's glued to the player via getters
 (it keeps its shape while the player moves) and is removed on
 `keyup`. Purely decorative — no collision check reads it, so it
 never affects combat. Like the shield, a missed `keyup` would leave
