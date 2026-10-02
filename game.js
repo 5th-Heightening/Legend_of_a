@@ -11,8 +11,8 @@ const VIEWPORT_BORDER_CHAR = "#";
 
 const renderer = new AsciiRenderer(
     viewport,
-    41,
-    18,
+    52,
+    22,
     VIEWPORT_BORDER_CHAR
 );
 
@@ -71,10 +71,10 @@ const loop = new GameLoop(TICK_INTERVAL, tick);
 const TITLE_BLINK_INTERVAL = 500;
 
 const splash = new SplashScreen();
-splash.x = 0;
+splash.x = 1;
 splash.y = 4;
 
-const pressAnyKey = new BlinkingText(14, 15, "Press any key", TITLE_BLINK_INTERVAL);
+const pressAnyKey = new BlinkingText(20, 16, "Press any key", TITLE_BLINK_INTERVAL);
 
 
 world.add(splash);
