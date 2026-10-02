@@ -283,8 +283,12 @@ function registerMovement() {
         },
 
         onMoved: (fromX, fromY) => {
-            if (isFlying(player)) {
-                leavePushTrace(fromX, fromY);
+
+            // Debug: only leave particles on push
+            if (Math.sign(player.mover.velocityX) != Math.sign( enemy.x - fromX ) ) {
+                if (isFlying(player)) {
+                    leavePushTrace(fromX, fromY);
+                }
             }
 
             updateParallax();
@@ -310,8 +314,11 @@ function registerMovement() {
         },
 
         onMoved: (fromX, fromY) => {
-            if (isFlying(enemy)) {
-                leavePushTrace(fromX, fromY);
+
+            if (Math.sign(enemy.mover.velocityX) != Math.sign( enemy.x - fromX ) ) {
+                if (isFlying(enemy)) {
+                    leavePushTrace(fromX, fromY);
+                }
             }
         }
     });
@@ -485,7 +492,7 @@ const ENCOUNTER_PUSH = 2*3; // 2;
 // leaves, plus the chance (0..1) of a trace particle per cell.
 const COLLISION_PARTICLE_COUNT = 3;
 const TRACE_PARTICLE_SPEED = 1;
-const TRACE_PARTICLE_DENSITY = .5;
+const TRACE_PARTICLE_DENSITY = .2;
 
 
 // Death feedback for any character: a copy of it jumps straight up
@@ -545,7 +552,7 @@ function killPlayer() {
 // TRACE_PARTICLE_DENSITY.
 function leavePushTrace(x, y) {
     if (Math.random() < TRACE_PARTICLE_DENSITY) {
-        // spawnParticles(x, y, 1, TRACE_PARTICLE_SPEED, false);
+        spawnParticles(x, y, 1, TRACE_PARTICLE_SPEED, false);
     }
 }
 
@@ -627,7 +634,7 @@ function checkEnemyEncounter() {
 
     // Burst at the player's touching part - sword tip, shield or body.
     // Deactivated for debugging!!
-    // spawnParticles(contact.a.x, contact.a.y, COLLISION_PARTICLE_COUNT);
+    spawnParticles(contact.a.x, contact.a.y, COLLISION_PARTICLE_COUNT);
 
     const playerFacesEnemy = playerFacing === enemySide;
     const enemyFacesPlayer = enemy.direction === -enemySide;

@@ -7,7 +7,9 @@
 // array is done by the driving loop in game.js, same as Enemy.
 class Particle {
 
-    static SEQUENCES = ["Oo+-.", "O*°'´`", ";:,.", ">v<^>v<^>", "%=\"'"];
+    // DEBUG: Try smaller particles 
+    static SEQUENCES = // ["Oo+-.", "O*°'´`", ";:,.", ">v<^>v<^>", "%=\"'"];
+                       ["++--.", "**°'´`", ";:,.", "\"\"''``"];
 
     // "\\|/-\\|/-" rotating particle
     //  ["#Oo+-.", "#O*°'´`", "#;:,."];
