@@ -62,7 +62,12 @@ class RubberBand {
     }
 
 
+    // A rooted fighter (the player behind its shield) isn't pulled.
     pull(fighter, dt) {
+
+        if (fighter.rooted) {
+            return;
+        }
 
         const velocity = fighter.velocityX;
         const pulled = RubberBand.pulledVelocity(velocity, this.towardOther(fighter), dt);

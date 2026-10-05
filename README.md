@@ -28,7 +28,7 @@ by `SplashScreen.js`/`SpeechBubble.js` before this split:
 | [ContactPredictor.js](ContactPredictor.js) | Predicts when two fighters will touch, for the enemy's sword timing — see "Enemy" below. |
 | [Player.js](Player.js) | Player state (`extends MovingObject`): facing and `sword`/`shield` weapon references. |
 | [PlayerController.js](PlayerController.js) | Arrow-key input → player steps / braking / combat impulses, sampled once per tick. |
-| [Sword.js](Sword.js), [Shield.js](Shield.js) | Combat visuals, both take a `player` reference in their constructor. |
+| [Sword.js](Sword.js), [Shield.js](Shield.js) | The player's timed weapons (dash/swing frames, shield), both take a `player` reference in their constructor. |
 | [Ground.js](Ground.js) | Background floor plane. |
 | [Enemy.js](Enemy.js) | Patrolling/combat enemy (`extends MovingObject`). |
 | [EnemySword.js](EnemySword.js) | The enemy's `-` sword, glued to the enemy — see "Enemy" below. |
@@ -166,7 +166,7 @@ One tick, in this order:
 
 Key handlers never move or render anything themselves. Arrow keys are
 only recorded (the controller acts on them on the next tick), and
-the sword/shield/squiggle keys create their objects right away, but those are drawn and
+the action/squiggle keys create their objects right away, but those are drawn and
 checked from the next tick on. Input is therefore at most one tick
 (40ms) late, and always on the beat.
 
@@ -296,46 +296,42 @@ way the player is turned, not whether they actually moved. While
 pushed, `facing` doesn't change, so the player stays turned toward
 where the push came from.
 
-## Combat: sword and shield
+## Combat: the player's four actions
 
-Both live one tile out from the player, on whichever side
-`player.facing` currently points, and neither is affected by movement
-collision (`wouldCollideAt` only checks `parallaxObjects`) or by
-parallax — they're relative to the player, not scenery. Both are also
-glued to the player via getters rather than a captured position, and
-both are referenced from `player.sword`/`player.shield` (set/cleared
-by `swingSword()`/`showShield()`/`hideShield()` in `game.js`, which
-also add/remove them from the renderer) rather than module-level
-variables — "which weapon is out" is state that belongs to the
-character.
+*Branch `rock_paper_scissor_fencing`.* The player has exactly four
+actions, `ACTION_KEYS` in [game.js](game.js):
 
-- **`Sword`** (`A`/`W`/`D`, `SWORD_KEYS` in [game.js](game.js), in the
-  `keydown` handler's `swingSword(position)`) is a one-shot swing in
-  one of three **positions**, `Sword.POSITIONS`: `A` → `"\"`,
-  `W` → `"-"`, `D` → `"/"`. The position is shown as-is (not
-  mirrored by facing) and stays for `SWORD_DURATION` (240ms = 6
-  ticks); then the sword sets `alive = false` and clears
-  `player.sword` itself, so the world drops it. `player.sword`
-  doubles as a re-entrancy guard — `swingSword()` no-ops while it's
-  non-null — and the `keydown` handler also checks `!event.repeat`,
-  so holding a sword key triggers exactly one swing per physical
-  press. Like `Shield`, its `x`/`y` are getters reading
-  `player.x`/`player.y`/`player.facing` live, so it stays glued to
-  the player. Whether its position matches the enemy's decides a
-  sword clash (see "Push").
-- **`Shield`** (`S`, `SHIELD_KEY`, held) is the opposite: no timer, glued to the
-  player for as long as the key is down. Its `x`/`y`/`getAscii()` are
-  getters reading `player.x`/`player.y`/`player.facing` live, so it
-  stays correctly positioned through any moves made while `S` is held,
-  with no per-move update needed. `showShield()` on `keydown` and
-  `hideShield()` on a separate `keyup` listener add/remove it;
-  `showShield()` is idempotent (checks `player.shield` first) so
-  repeated auto-repeat keydowns while holding `S` are harmless.
-  Character is `"["` when facing left, `"]"` when facing right.
+| Key | Action | What happens |
+|---|---|---|
+| `A` | **dash** (`dash()`) | adds `DASH_IMPULSE` (8 cells/s) toward where the player faces (in combat: toward the enemy), sword `-` held out in front for `DASH_DURATION` (320ms) |
+| `D` | **shield** (`raiseShield()`) | stops the player; `[`/`]` in front for `SHIELD_DURATION` (480ms) |
+| `W` | **swing from above** (`swing()`) | `\|` over the player, then `/` diagonally above in front, then `-` in front |
+| `S` | **swing from below** (`swing()`) | `\|` under the player, then `\` diagonally below in front, then `-` in front |
 
-Known gap: if the browser never delivers a `keyup` for `S` (e.g. focus
-leaves the page while it's held), the shield can get stuck on. There's
-no blur-handler safety net for that yet.
+Every action ends on its own after its time: the weapon sets
+`alive = false` and clears `player.sword`/`player.shield` itself, so
+the world drops it and the player has nothing drawn again. Only one
+action runs at a time (`player.busy`); a key pressed meanwhile is
+ignored, and the `keydown` handler ignores auto-repeat, so holding a
+key gives exactly one action per press.
+
+**`Sword`** ([Sword.js](Sword.js)) is one action as a list of frames,
+`Sword.FRAMES` (`dash`, `overhead`, `underhand`): each frame is one
+blade character at an offset `dx`/`dy` from the player, written for
+facing right. Facing left, `dx` and the diagonals are mirrored
+(`Sword.MIRRORED`). Each frame shows for `frameDuration`:
+`SWING_FRAME_DURATION` (80ms = 2 ticks) for a swing, `DASH_DURATION`
+for the dash's single frame. `x`/`y`/`getAscii()` are getters reading
+the player live, so the blade stays glued to it.
+
+**`Shield`** ([Shield.js](Shield.js)) is timed the same way. While it's
+up, the player is **rooted** (`player.rooted`): its speed is stopped
+when the shield goes up, the rubber band doesn't pull it, arrow keys
+are ignored (it only keeps facing the enemy), and the contact
+predictor treats it as standing still. A shield encounter knocks the
+player to 0 anyway (see "Push").
+
+Neither weapon is affected by movement collision or parallax.
 
 ## Enemy
 
@@ -437,10 +433,12 @@ from the other side):
 | bare-handed | unarmed | enemy's speed | player's speed (plain exchange) |
 
 **Sword clash:** every enemy attack picks a random position
-(`Sword.POSITIONS`: `"/"`, `"\"`, `"-"`). The fighters face each
+(`EnemySword.POSITIONS`: `"/"`, `"\"`, `"-"`). The fighters face each
 other, so positions are compared mirrored (`Sword.matches()`,
 `Sword.MIRRORED`): `"/"` meets `"\"` and `"-"` meets `"-"` match;
-`"/"` meets `"/"` and `"\"` meets `"\"` don't. Matching positions
+`"/"` meets `"/"` and `"\"` meets `"\"` don't. The player's side is
+its blade as currently drawn (the swing's current frame), and it only
+counts as "sword drawn" while that blade is on the enemy's row. Matching positions
 reflect both fighters *and* hand the initiative to the other side (see
 "Initiative"). Non-matching positions push back only whoever doesn't
 hold the initiative.

@@ -18,6 +18,8 @@
 // press adds COMBAT_IMPULSE to the player's speed once instead -
 // holding the key adds nothing more. The player keeps facing the
 // enemy. Up/down step as usual.
+//
+// While the shield is up (player.rooted) the arrows are ignored.
 class PlayerController {
 
     static DIRECTIONS = {
@@ -99,6 +101,18 @@ class PlayerController {
         const key = presses.at(-1) ?? this.heldArrows.at(-1);
         const mover = this.player.mover;
         const inCombat = this.rubberBand !== null && this.rubberBand.engaged();
+
+        // Behind the shield the player stands still - arrows are
+        // ignored, it only keeps facing the enemy.
+        if (this.player.rooted) {
+            this.holdTime = 0;
+
+            if (inCombat) {
+                this.faceOther();
+            }
+
+            return;
+        }
 
         if (inCombat) {
             this.fence(presses);
@@ -193,6 +207,13 @@ class PlayerController {
                 this.player.mover.accelerate(dx * PlayerController.COMBAT_IMPULSE);
             }
         }
+
+        this.faceOther();
+    }
+
+
+    // In combat the player always faces the enemy.
+    faceOther() {
 
         const toward = this.rubberBand.towardOther(this.player);
 

@@ -1,14 +1,16 @@
 // The enemy's sword: one tile in front of the enemy, on whichever
 // side it's currently heading, for `duration` ms. Every attack picks
-// one of the sword positions ("/", "\", "-", Sword.POSITIONS) at
-// random, and switches to another one at random every
-// `positionInterval` ms while the sword is out.
+// one of the POSITIONS at random, and switches to another one at
+// random every `positionInterval` ms while the sword is out.
 // Started by updateEnemySword() in game.js; put away again by
 // sheathe() at the end of the strike, after which the enemy can't
 // draw for `cooldown` ms. Glued to the enemy via getters, like the
 // player's Sword/Shield, so it moves along while the enemy keeps
 // closing in.
 class EnemySword {
+
+    static POSITIONS = ["/", "\\", "-"];
+
 
     constructor(enemy, duration, cooldown, positionInterval) {
         this.enemy = enemy;
@@ -47,7 +49,7 @@ class EnemySword {
 
     // A random sword position other than `current` (if given).
     randomPosition(current = null) {
-        const choices = Sword.POSITIONS.filter(position => position !== current);
+        const choices = EnemySword.POSITIONS.filter(position => position !== current);
         return choices[Math.floor(Math.random() * choices.length)];
     }
 

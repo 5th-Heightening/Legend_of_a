@@ -56,7 +56,8 @@ class ContactPredictor {
         return {
             x: fighter.x,
             offsetX: fighter.mover.offsetX,
-            velocityX: fighter.mover.velocityX
+            velocityX: fighter.mover.velocityX,
+            rooted: fighter.rooted === true
         };
     }
 
@@ -64,6 +65,10 @@ class ContactPredictor {
     // One tick for one fighter: the pull toward the other one, then
     // the movement (see RubberBand.pull() and Mover.advance()).
     static step(fighter, other, dt) {
+
+        if (fighter.rooted) {
+            return;
+        }
 
         const toward = Math.sign(other.x - fighter.x);
 

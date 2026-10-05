@@ -347,41 +347,77 @@ function startGame() {
 
 
 // ==================================================
-// Combat: sword swing (A/W/D, one-shot) and shield (S, held)
+// Combat: the player's four actions
 //
-// Each sword key swings the sword in one position (see Sword.js).
+// - A: dash toward the enemy (the way the player faces), sword held
+//   out in front
+// - D: shield - the player stops and stands still behind it
+// - W: swing from above ("|" over the player, "/", "-" in front)
+// - S: swing from below ("|" under the player, "\", "-" in front)
+//
+// Every action is over after its time and the player has nothing
+// drawn again (see Sword.js, Shield.js). One action at a time - a
+// running one isn't interrupted or restarted.
 // ==================================================
 
-const SWORD_KEYS = {
-    a: "\\",
-    w: "-",
-    d: "/"
+const ACTION_KEYS = {
+    a: dash,
+    d: raiseShield,
+    w: () => swing(Sword.FRAMES.overhead),
+    s: () => swing(Sword.FRAMES.underhand)
 };
 
-const SHIELD_KEY = "s";
+// Cells per second the dash adds toward where the player faces.
+const DASH_IMPULSE = 8;
 
-// How long a swing stays out, in ms.
-const SWORD_DURATION = 240;
+// How long the sword stays out during the dash, in ms.
+const DASH_DURATION = 320;
 
-function swingSword(position) {
+// How long each of a swing's frames shows, in ms.
+const SWING_FRAME_DURATION = 80;
 
-    // A swing already in progress isn't interrupted or restarted.
-    if (!player.alive || player.sword) {
+// How long the shield stays up, in ms.
+const SHIELD_DURATION = 480;
+
+
+function dash() {
+
+    if (!player.alive || player.busy) {
         return;
     }
 
-    player.sword = new Sword(player, position, SWORD_DURATION);
+    const facing = player.facing === "left" ? -1 : 1;
+    player.mover.accelerate(facing * DASH_IMPULSE);
+
+    drawSword(Sword.FRAMES.dash, DASH_DURATION);
+}
+
+
+function swing(frames) {
+
+    if (!player.alive || player.busy) {
+        return;
+    }
+
+    drawSword(frames, SWING_FRAME_DURATION);
+}
+
+
+function drawSword(frames, frameDuration) {
+    player.sword = new Sword(player, frames, frameDuration);
     world.add(player.sword);
 }
 
 
-function showShield() {
+function raiseShield() {
 
-    if (!player.alive || player.shield) {
+    if (!player.alive || player.busy) {
         return;
     }
 
-    player.shield = new Shield(player);
+    player.mover.stop();
+
+    player.shield = new Shield(player, SHIELD_DURATION);
     world.add(player.shield);
 }
 
@@ -426,12 +462,16 @@ const contactPredictor = new ContactPredictor(TICK_INTERVAL);
 
 
 // Cells the player reaches toward the enemy right now - one more
-// with a sword or shield out on that side.
+// with a sword or shield out in front of it, on its own row (a
+// swing's "|" over or under the player doesn't add reach).
 function playerReach() {
-    const facing = player.facing === "left" ? -1 : 1;
-    const weaponOut = player.sword || player.shield;
+    const toward = Math.sign(enemy.x - player.x);
 
-    return weaponOut && facing === Math.sign(enemy.x - player.x) ? 1 : 0;
+    const inFront = [player.sword, player.shield].some(weapon =>
+        weapon && weapon.y === player.y && Math.sign(weapon.x - player.x) === toward
+    );
+
+    return inFront ? 1 : 0;
 }
 
 
@@ -660,7 +700,8 @@ function checkEnemyEncounter() {
     const enemyFacesPlayer = enemy.direction === -enemySide;
 
     const shield = player.shield && playerFacesEnemy;
-    const playerSword = player.sword && playerFacesEnemy;
+    // A swing only counts once its blade is on the enemy's row.
+    const playerSword = player.sword && playerFacesEnemy && player.sword.y === enemy.y;
     const enemySword = enemyStrike && enemyFacesPlayer;
 
     // New speeds away from the other side.
@@ -673,7 +714,7 @@ function checkEnemyEncounter() {
     }
     else if (playerSword && enemySword) {
 
-        if (Sword.matches(player.sword.position, enemyStrike.position)) {
+        if (Sword.matches(player.sword.getAscii(), enemyStrike.position)) {
             playerAway = playerApproach;
             enemyAway = enemyApproach;
             initiative.give(initiative.has(player) ? enemy : player);
@@ -786,19 +827,14 @@ document.addEventListener("keydown", event => {
 
     const key = event.key.toLowerCase();
 
-    if (key in SWORD_KEYS) {
+    if (key in ACTION_KEYS) {
 
         // Ignore auto-repeat while the key is held - one press,
-        // one swing.
+        // one action.
         if (!event.repeat) {
-            swingSword(SWORD_KEYS[key]);
+            ACTION_KEYS[key]();
         }
 
-        return;
-    }
-
-    if (key === SHIELD_KEY) {
-        showShield();
         return;
     }
 
@@ -816,10 +852,6 @@ document.addEventListener("keydown", event => {
 document.addEventListener("keyup", event => {
 
     const key = event.key.toLowerCase();
-
-    if (key === SHIELD_KEY) {
-        hideShield();
-    }
 
     if (key === SQUIGGLE_KEY) {
         stopSquiggle();
