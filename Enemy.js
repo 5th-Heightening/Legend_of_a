@@ -1,21 +1,34 @@
 // Walks back and forth along a fixed row between minX and maxX,
 // reversing direction at either end, until it's in combat with its
-// target (the player) - then the rubber band (see RubberBand.js)
-// pulls it toward the target instead, and it only keeps facing it.
-// update() only decides the enemy's velocity once per game tick;
-// the MovementSystem moves it.
+// target (the player). In combat it runs at the target with
+// ATTACK_SPEED. update() only decides the enemy's velocity once per
+// game tick; the MovementSystem moves it.
 //
-// The enemy has one horizontal speed (see Mover.js). A hit is just
-// that speed pointing away; there is no separate push.
+// After every encounter (see checkEnemyEncounter() in game.js) the
+// enemy is either pushed back - PUSHBACK_SPAN cells at PUSHBACK_SPEED
+// - or stands its ground. Either way it then stops for RECOVERY_DELAY
+// before it moves again. Its whole rhythm in combat is:
+//
+//   approach (ATTACK_SPEED) -> encounter -> pushed back (PUSHBACK_SPAN
+//   at PUSHBACK_SPEED) -> stop (RECOVERY_DELAY) -> approach ...
 class Enemy extends MovingObject {
 
     // Speed while patrolling, in cells per second.
     static PATROL_SPEED = 2.5;
 
-    // Outside of combat, a speed above PATROL_SPEED (e.g. after a
-    // hit) is braked by BRAKE (cells per second, per second) until
-    // the enemy can patrol again.
-    static BRAKE = 20;
+    // Speed it runs at the player with in combat, in cells per second.
+    static ATTACK_SPEED = 6;
+
+    // A push back: how many cells, how fast (cells per second).
+    static PUSHBACK_SPAN = 4;
+    static PUSHBACK_SPEED = 15;
+
+    // How long it stands still after an encounter (after the push
+    // back, if it was pushed), in ms.
+    static RECOVERY_DELAY = 400;
+
+    // In combat while the target is at most this many rows away.
+    static COMBAT_ROW_DISTANCE = 1;
 
 
     constructor(x, y, minX, maxX, target) {
@@ -28,8 +41,8 @@ class Enemy extends MovingObject {
 
         this.direction = 1;
 
-        // Set in game.js - decides when the enemy is in combat.
-        this.rubberBand = null;
+        // Time left standing still after an encounter, in ms.
+        this.recoveryTime = 0;
 
         // Drawn sword, or null when not out. Set by updateEnemySword()
         // in game.js, cleared by EnemySword.putAway(). The enemy won't
@@ -37,7 +50,7 @@ class Enemy extends MovingObject {
         this.sword = null;
         this.swordCooldown = 0;
 
-        // Flips to false once knocked into the environment/border
+        // Flips to false once pushed into the environment/border
         // - see vanishEnemy() in game.js.
         this.alive = true;
     }
@@ -55,24 +68,54 @@ class Enemy extends MovingObject {
 
 
     inCombat() {
-        return this.rubberBand !== null && this.rubberBand.engaged();
+        return this.alive && this.target.alive !== false &&
+            Math.abs(this.y - this.target.y) <= Enemy.COMBAT_ROW_DISTANCE;
     }
 
 
-    // One game tick of decision making. In combat, the rubber band
-    // alone moves the enemy; it just keeps facing the target.
-    // Otherwise: faster than patrolling, it brakes; else it patrols.
+    // Direction (-1/1) toward the target, 0 in the same column.
+    towardTarget() {
+        return Math.sign(this.target.x - this.x);
+    }
+
+
+    // Lost an encounter: flies back, then recovers.
+    pushBack(direction) {
+        this.startPush(direction, Enemy.PUSHBACK_SPAN, Enemy.PUSHBACK_SPEED);
+        this.recoveryTime = Enemy.RECOVERY_DELAY;
+    }
+
+
+    // Won an encounter: stops where it is, then recovers.
+    holdGround() {
+        this.mover.stop();
+        this.recoveryTime = Enemy.RECOVERY_DELAY;
+    }
+
+
+    // One game tick of decision making, in this order: still being
+    // pushed back -> let it fly; recovering -> stand still; in combat
+    // -> run at the target; else patrol.
     update(dt) {
 
         this.swordCooldown = Math.max(0, this.swordCooldown - dt);
 
         if (this.inCombat()) {
-            this.direction = this.rubberBand.towardOther(this) || this.direction;
+            this.direction = this.towardTarget() || this.direction;
+        }
+
+        if (this.pushed) {
             return;
         }
 
-        if (Math.abs(this.velocityX) > Enemy.PATROL_SPEED) {
-            this.mover.brake(Enemy.BRAKE * dt / 1000);
+        if (this.recoveryTime > 0) {
+            this.recoveryTime = Math.max(0, this.recoveryTime - dt);
+            this.mover.stop();
+            return;
+        }
+
+        if (this.inCombat()) {
+            this.mover.setVelocity(this.towardTarget() * Enemy.ATTACK_SPEED, 0);
             return;
         }
 
@@ -93,7 +136,7 @@ class Enemy extends MovingObject {
     }
 
 
-    // Ran into something too slowly to die: stops, and while
+    // Ran into something without being pushed: stops, and while
     // patrolling turns around.
     bump() {
         this.mover.stop();

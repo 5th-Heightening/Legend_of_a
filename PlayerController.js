@@ -1,6 +1,6 @@
-// Turns the arrow keys into player movement, sampled once per game
-// tick (see update()) - the key handlers in game.js only record
-// presses and releases.
+// Turns the arrow keys into player steps, sampled once per game tick
+// (see update()) - the key handlers in game.js only record presses
+// and releases.
 //
 // The OS key auto-repeat is ignored. Instead, a fresh press moves
 // one step on the next tick, and holding the key keeps stepping
@@ -8,18 +8,14 @@
 // recently pressed one wins; releasing it falls back to the next one
 // still held.
 //
-// The player has one horizontal speed (see Mover.js); a push is just
-// that speed after a hit. Outside of combat it brakes on its own
-// while the player keeps moving and steering: holding the arrow
-// against it digs in (no step, brakes DIG_IN_FACTOR times harder),
-// holding it along rides it (steps on top of it, RIDE_FACTOR).
+// In combat the player also runs at the enemy on its own, at
+// Player.ATTACK_SPEED (see approach()), and always faces it, so
+// stepping back doesn't turn its back on it.
 //
-// In combat (see RubberBand.js) left/right don't step. Each fresh
-// press adds COMBAT_IMPULSE to the player's speed once instead -
-// holding the key adds nothing more. The player keeps facing the
-// enemy. Up/down step as usual.
-//
-// While the shield is up (player.rooted) the arrows are ignored.
+// The player neither steps nor approaches while it's being pushed
+// back, dashing (both a fixed travel, see Mover.travel()), behind its
+// shield (player.rooted) or recovering after a push back
+// (player.recovering).
 class PlayerController {
 
     static DIRECTIONS = {
@@ -31,15 +27,6 @@ class PlayerController {
 
     // Time between steps while an arrow is held.
     static MOVE_INTERVAL = 120;
-
-    // Outside of combat the speed brakes by BRAKE (cells per second,
-    // per second), scaled by the held arrow - see brake().
-    static BRAKE = 10;
-    static DIG_IN_FACTOR = 4;
-    static RIDE_FACTOR = 1;
-
-    // Speed (cells per second) one left/right press adds in combat.
-    static COMBAT_IMPULSE = 4;
 
 
     constructor(player) {
@@ -57,8 +44,9 @@ class PlayerController {
         // Time the current arrow has been held since its last step.
         this.holdTime = 0;
 
-        // Set in game.js - decides when the player is in combat.
-        this.rubberBand = null;
+        // Set in game.js - the enemy, which decides when the player is
+        // in combat.
+        this.opponent = null;
     }
 
 
@@ -99,123 +87,79 @@ class PlayerController {
 
         const presses = this.presses.splice(0);
         const key = presses.at(-1) ?? this.heldArrows.at(-1);
-        const mover = this.player.mover;
-        const inCombat = this.rubberBand !== null && this.rubberBand.engaged();
-
-        // Behind the shield the player stands still - arrows are
-        // ignored, it only keeps facing the enemy.
-        if (this.player.rooted) {
-            this.holdTime = 0;
-
-            if (inCombat) {
-                this.faceOther();
-            }
-
-            return;
-        }
+        const inCombat = this.opponent !== null && this.opponent.inCombat();
 
         if (inCombat) {
-            this.fence(presses);
-        }
-        else {
-            this.brake(dt, key ? PlayerController.DIRECTIONS[key].dx : 0);
+            this.faceOpponent();
         }
 
-        if (!key) {
+        this.approach(inCombat);
+
+        if (!key || this.held()) {
             this.holdTime = 0;
             return;
         }
 
         const { dx, dy } = PlayerController.DIRECTIONS[key];
 
-        // In combat left/right only change the speed - see fence().
-        if (inCombat && dx !== 0) {
-            this.holdTime = 0;
-            return;
-        }
-
-        const drift = Math.sign(mover.velocityX);
-
-        // Digging in: stand your ground, don't step.
-        const diggingIn = dx !== 0 && dx === -drift;
-
-        // While drifting, the player stays turned toward where the
-        // hit came from, so riding it doesn't turn its back to the
-        // enemy.
-        if (dx !== 0 && drift === 0) {
+        if (dx !== 0 && !inCombat) {
             this.player.facing = dx < 0 ? "left" : "right";
         }
 
         // Fresh presses act right away; a held key only acts every
         // MOVE_INTERVAL.
-        let freshPresses = presses.length;
-        let heldRepeat = false;
-
-        if (freshPresses > 0) {
+        if (presses.length > 0) {
             this.holdTime = 0;
-        }
-        else if (this.heldArrows.length > 0) {
-            this.holdTime += dt;
-
-            if (this.holdTime >= PlayerController.MOVE_INTERVAL) {
-                this.holdTime -= PlayerController.MOVE_INTERVAL;
-                heldRepeat = true;
-            }
-        }
-
-        if (diggingIn) {
+            this.player.mover.queueStep(dx, dy);
             return;
         }
 
-        if (freshPresses > 0 || heldRepeat) {
+        this.holdTime += dt;
+
+        if (this.holdTime >= PlayerController.MOVE_INTERVAL) {
+            this.holdTime -= PlayerController.MOVE_INTERVAL;
             this.player.mover.queueStep(dx, dy);
         }
     }
 
 
-    // Outside of combat: brakes the speed toward 0, harder when the
-    // held arrow dx (-1/0/1) points against it, see BRAKE.
-    brake(dt, dx) {
-
-        const drift = Math.sign(this.player.velocityX);
-
-        if (drift === 0) {
-            return;
-        }
-
-        let factor = 1;
-
-        if (dx === -drift) {
-            factor = PlayerController.DIG_IN_FACTOR;
-        }
-        else if (dx === drift) {
-            factor = PlayerController.RIDE_FACTOR;
-        }
-
-        this.player.mover.brake(PlayerController.BRAKE * factor * dt / 1000);
+    // Pushed back, dashing, behind the shield or recovering - the
+    // player can't move on its own.
+    held() {
+        return this.player.mover.traveling ||
+            this.player.rooted ||
+            this.player.recovering;
     }
 
 
-    // Combat: every fresh left/right press adds COMBAT_IMPULSE to the
-    // speed, and the player turns toward the enemy.
-    fence(presses) {
+    // In combat: runs at the enemy with Player.ATTACK_SPEED. Otherwise
+    // (or while held) the speed is 0 - a push or dash in progress is
+    // left alone.
+    approach(inCombat) {
 
-        for (const key of presses) {
-            const { dx } = PlayerController.DIRECTIONS[key];
+        const mover = this.player.mover;
 
-            if (dx !== 0) {
-                this.player.mover.accelerate(dx * PlayerController.COMBAT_IMPULSE);
-            }
+        if (mover.traveling) {
+            return;
         }
 
-        this.faceOther();
+        const toward = inCombat && !this.held()
+            ? Math.sign(this.opponent.x - this.player.x)
+            : 0;
+
+        if (toward === 0) {
+            mover.stop();
+            return;
+        }
+
+        mover.setVelocity(toward * Player.ATTACK_SPEED, 0);
     }
 
 
     // In combat the player always faces the enemy.
-    faceOther() {
+    faceOpponent() {
 
-        const toward = this.rubberBand.towardOther(this.player);
+        const toward = Math.sign(this.opponent.x - this.player.x);
 
         if (toward !== 0) {
             this.player.facing = toward < 0 ? "left" : "right";

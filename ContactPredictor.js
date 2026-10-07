@@ -1,9 +1,9 @@
-// Predicts when two fighters in combat will touch, by running the
-// rubber band's pull and the Mover's cell stepping forward, tick by
-// tick - the same math the game itself uses. Fractional speeds, the
-// pull's speed cap and half-crossed cells all come out exactly as
-// they will play out, as long as nobody presses a key or runs into
-// something in the meantime.
+// Predicts when two fighters will touch, by running a copy of each
+// fighter's Mover forward, tick by tick - the same math the game
+// itself uses. Fractional speeds, half-crossed cells and the end of a
+// push or dash all come out exactly as they will play out, as long as
+// nobody presses a key, changes speed or runs into something in the
+// meantime.
 class ContactPredictor {
 
     // How far ahead (ms) to look before giving up.
@@ -44,8 +44,8 @@ class ContactPredictor {
                 return time;
             }
 
-            ContactPredictor.step(simA, simB, dt);
-            ContactPredictor.step(simB, simA, dt);
+            ContactPredictor.step(simA, dt);
+            ContactPredictor.step(simB, dt);
         }
 
         return null;
@@ -55,30 +55,13 @@ class ContactPredictor {
     static snapshot(fighter) {
         return {
             x: fighter.x,
-            offsetX: fighter.mover.offsetX,
-            velocityX: fighter.mover.velocityX,
-            rooted: fighter.rooted === true
+            mover: fighter.mover.clone()
         };
     }
 
 
-    // One tick for one fighter: the pull toward the other one, then
-    // the movement (see RubberBand.pull() and Mover.advance()).
-    static step(fighter, other, dt) {
-
-        if (fighter.rooted) {
-            return;
-        }
-
-        const toward = Math.sign(other.x - fighter.x);
-
-        fighter.velocityX = RubberBand.pulledVelocity(fighter.velocityX, toward, dt);
-
-        fighter.offsetX += fighter.velocityX * dt / 1000;
-
-        const cells = Mover.wholeCells(fighter.offsetX);
-
-        fighter.offsetX -= cells;
-        fighter.x += cells;
+    // One tick of movement for one fighter (see Mover.advance()).
+    static step(fighter, dt) {
+        fighter.x += fighter.mover.advance(dt).dx;
     }
 }

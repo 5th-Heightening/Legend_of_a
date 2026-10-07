@@ -12,6 +12,9 @@ class MovingObject {
 
         this.mover = new Mover();
 
+        // Whether the current travel() is a push back (see pushed).
+        this.travelIsPush = false;
+
         // Position at the start of the current tick's movement - set
         // by the MovementSystem. A collision means two objects share
         // a cell, so only these tell which side each came from.
@@ -23,5 +26,27 @@ class MovingObject {
     // The one horizontal speed, cells per second - see Mover.js.
     get velocityX() {
         return this.mover.velocityX;
+    }
+
+
+    // Being pushed back: moves exactly `span` cells in `direction`
+    // (-1/1) at `speed` (cells per second), then stops on its own.
+    startPush(direction, span, speed) {
+        this.mover.travel(direction * speed, span);
+        this.travelIsPush = true;
+    }
+
+
+    // Moving on its own for a fixed span (the player's dash) - like a
+    // push, but it isn't one.
+    lunge(direction, span, speed) {
+        this.mover.travel(direction * speed, span);
+        this.travelIsPush = false;
+    }
+
+
+    // True while a push back is still carrying it.
+    get pushed() {
+        return this.travelIsPush && this.mover.traveling;
     }
 }

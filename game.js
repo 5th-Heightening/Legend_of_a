@@ -38,10 +38,9 @@ const movement = new MovementSystem();
 // The order of one tick:
 // 1. input - the arrow keys pressed/held since the last tick
 // 2. objects - enemy AI, weapon timers, particles, ...
-// 3. rubber band - player and enemy pull on each other in combat
-// 4. movement - everything that moves, one cell at a time
-// 5. combat - enemy sword, player/enemy encounter
-// 6. draw
+// 3. movement - everything that moves, one cell at a time
+// 4. combat - enemy sword, player/enemy encounter
+// 5. draw
 function tick(dt) {
 
     if (gameStarted && player.alive) {
@@ -51,7 +50,6 @@ function tick(dt) {
     world.update(dt);
 
     if (gameStarted) {
-        rubberBand.update(dt);
         movement.update(dt);
         updateEnemySword();
         checkEnemyEncounter();
@@ -98,10 +96,8 @@ const playerController = new PlayerController(player);
 
 const enemy = new Enemy(ENEMY_START_X, START_ROW, 5, 35, player);
 
-// In combat, player and enemy pull on each other - see RubberBand.js.
-const rubberBand = new RubberBand(player, enemy);
-playerController.rubberBand = rubberBand;
-enemy.rubberBand = rubberBand;
+// The enemy decides when the player is in combat (Enemy.inCombat()).
+playerController.opponent = enemy;
 
 // One of the two fighters has the initiative, marked with a "!"
 // above it - see Initiative.js. The enemy starts with it.
@@ -230,31 +226,19 @@ function enemyFitsAt(x, y) {
 //
 // - Player: stays inside the viewport and is blocked by scenery.
 // - Enemy: stays inside the display and is blocked by scenery.
-// - Both: running into the border/scenery at LETHAL_SPEED or more
-//   kills (killPlayer(), vanishEnemy()) - no matter whether that
-//   speed comes from a hit, the rubber band's pull or the player's
-//   own impulse. Slower, it just stops the speed. Walking steps
-//   (the player's) never kill.
+// - Both: being pushed back into the border/scenery kills
+//   (killPlayer(), vanishEnemy()). Anything else running into it
+//   (a walking step, the dash, the enemy's approach) just stops.
 // - Neither can step onto the other's cell - they fight by touching
 //   (see checkEnemyEncounter()), not by overlapping. Being blocked by
-//   the other's body leaves the speed alone: the encounter
-//   recalculates it.
+//   the other's body leaves the movement alone: the encounter
+//   decides what happens.
 //
-// Both leave a trace of particles behind while that fast.
+// Both leave a trace of particles behind while pushed back.
 // ==================================================
-
-// Cells per second.
-const LETHAL_SPEED = 5;
-
 
 function occupies(object, x, y) {
     return object.alive !== false && object.x === x && object.y === y;
-}
-
-
-// Fast enough to die running into something.
-function isFlying(object) {
-    return Math.abs(object.velocityX) >= LETHAL_SPEED;
 }
 
 
@@ -268,17 +252,13 @@ function registerMovement() {
             !wouldCollideAt(x, y) &&
             !occupies(enemy, x, y),
 
-        // Only a step along the player's own speed counts - walking
-        // into something (also sideways, or against the speed) just
-        // doesn't happen. Riding the speed into it does kill.
         onBlocked: (x, y) => {
-            const along = Math.sign(x - player.x) === Math.sign(player.velocityX);
 
-            if (x === player.x || !along || occupies(enemy, x, y)) {
+            if (occupies(enemy, x, y)) {
                 return;
             }
 
-            if (isFlying(player)) {
+            if (player.pushed) {
                 killPlayer();
             }
             else {
@@ -288,11 +268,8 @@ function registerMovement() {
 
         onMoved: (fromX, fromY) => {
 
-            // Debug: only leave particles on push
-            if (Math.sign(player.mover.velocityX) != Math.sign( enemy.x - fromX ) ) {
-                if (isFlying(player)) {
-                    leavePushTrace(fromX, fromY);
-                }
+            if (player.pushed) {
+                leavePushTrace(fromX, fromY);
             }
 
             updateParallax();
@@ -309,7 +286,7 @@ function registerMovement() {
                 return;
             }
 
-            if (isFlying(enemy)) {
+            if (enemy.pushed) {
                 vanishEnemy();
             }
             else {
@@ -319,10 +296,8 @@ function registerMovement() {
 
         onMoved: (fromX, fromY) => {
 
-            if (Math.sign(enemy.mover.velocityX) != Math.sign( enemy.x - fromX ) ) {
-                if (isFlying(enemy)) {
-                    leavePushTrace(fromX, fromY);
-                }
+            if (enemy.pushed) {
+                leavePushTrace(fromX, fromY);
             }
         }
     });
@@ -349,8 +324,8 @@ function startGame() {
 // ==================================================
 // Combat: the player's four actions
 //
-// - A: dash toward the enemy (the way the player faces), sword held
-//   out in front
+// - A: dash DASH_SPAN cells toward the enemy (the way the player
+//   faces) at DASH_SPEED, sword held out in front
 // - D: shield - the player stops and stands still behind it
 // - W: swing from above ("|" over the player, "/", "-" in front)
 // - S: swing from below ("|" under the player, "\", "-" in front)
@@ -367,8 +342,9 @@ const ACTION_KEYS = {
     s: () => swing(Sword.FRAMES.underhand)
 };
 
-// Cells per second the dash adds toward where the player faces.
-const DASH_IMPULSE = 8;
+// How many cells the dash covers, and how fast (cells per second).
+const DASH_SPAN = 3;
+const DASH_SPEED = 12;
 
 // How long the sword stays out during the dash, in ms.
 const DASH_DURATION = 320;
@@ -382,12 +358,12 @@ const SHIELD_DURATION = 480;
 
 function dash() {
 
-    if (!player.alive || player.busy) {
+    if (!player.alive || player.busy || player.pushed || player.recovering) {
         return;
     }
 
     const facing = player.facing === "left" ? -1 : 1;
-    player.mover.accelerate(facing * DASH_IMPULSE);
+    player.lunge(facing, DASH_SPAN, DASH_SPEED);
 
     drawSword(Sword.FRAMES.dash, DASH_DURATION);
 }
@@ -415,7 +391,10 @@ function raiseShield() {
         return;
     }
 
-    player.mover.stop();
+    // Stops a dash, but not a push back.
+    if (!player.pushed) {
+        player.mover.stop();
+    }
 
     player.shield = new Shield(player, SHIELD_DURATION);
     world.add(player.shield);
@@ -537,42 +516,24 @@ function updateEnemySword() {
 // ==================================================
 // Encounter: player and enemy run into each other
 //
-// Both have one horizontal speed (see Mover.js) and nothing else - a
-// push is just that speed pointing away from the other. Every
-// encounter recalculates both speeds from the current ones. In
-// combat the rubber band then brakes them and pulls both back
-// together (see RubberBand.js); outside of combat they brake (see
-// PlayerController.js, Enemy.update()).
-//
-// Each side's speed toward the other at the moment of contact adds
-// up to the closing speed. Decided by both sides' weapons:
-// - shield up: a reflector - the player stands firm (speed 0), the
-//   enemy bounces off with the whole closing speed
+// An encounter only decides who is pushed back - moved a fixed span
+// away from the other at a fixed speed (Player/Enemy.PUSHBACK_SPAN,
+// PUSHBACK_SPEED). Whoever isn't pushed back stands firm (stops). The
+// enemy then stops for Enemy.RECOVERY_DELAY in either case before it
+// runs at the player again (see Enemy.js). Decided by both sides'
+// weapons:
+// - shield up: the enemy is pushed back
 // - both swords drawn, matching positions (mirrored, see
-//   Sword.matches(): "/" meets "\", "-" meets "-"): a
-//   reflection - each side keeps its own speed, turned around
-//   (multiplied by -1) - and the initiative goes to the other side
-// - both swords drawn, different positions: whoever has the
-//   initiative stands firm, the other bounces off with the closing
-//   speed
-// - only the player's sword drawn: the player stands firm, the enemy
-//   bounces off with the closing speed
-// - only the enemy's sword drawn: the enemy stands firm, the player
-//   bounces off with the closing speed plus SWORD_IMPULSE
-// - neither armed: the bodies just exchange their speeds
+//   Sword.matches(): "/" meets "\", "-" meets "-"): both are pushed
+//   back - and the initiative goes to the other side
+// - both swords drawn, different positions: whoever doesn't have the
+//   initiative is pushed back
+// - only the player's sword drawn: the enemy is pushed back
+// - only the enemy's sword drawn: the player is pushed back
+// - neither armed: both are pushed back
 // Shield wins if somehow both shield and sword are active at
 // once (blocking takes priority over attacking).
 // ==================================================
-
-// Cells per second the enemy's sword adds to the player's speed when
-// it hits.
-const SWORD_IMPULSE = 6;
-
-// Cells per second added to everyone who bounces off in an
-// encounter (anyone who stands firm keeps 0). Makes up for the speed
-// the fixed tick loses on every bounce, so a fight doesn't slowly
-// die down.
-const ENCOUNTER_PUSH = 2*3; // 2;
 
 // Burst spawned where the player and enemy collide, and the
 // (slower) speed of the trace particles a pushed player/enemy
@@ -674,9 +635,9 @@ function findContact(partsA, partsB) {
 
 // Checked once per tick, after everything has moved. Fires as soon
 // as any part of the player (body, sword, shield) touches any part
-// of the enemy (body, sword) - see findContact() - while the two are
-// closing in on each other. Once they fly apart it can't fire again,
-// so staying in contact doesn't keep re-triggering it.
+// of the enemy (body, sword) - see findContact() - while neither is
+// being pushed back. A push carries the loser out of reach, so
+// staying in contact doesn't keep re-triggering it.
 //
 // Everything directional follows from one `enemySide`: who is
 // pushed which way, and whether each side's weapon actually faces
@@ -685,6 +646,10 @@ function findContact(partsA, partsB) {
 function checkEnemyEncounter() {
 
     if (!enemy.alive || !player.alive) {
+        return;
+    }
+
+    if (player.pushed || enemy.pushed) {
         return;
     }
 
@@ -709,17 +674,7 @@ function checkEnemyEncounter() {
         Math.sign(enemy.previousX - player.previousX) ||
         playerFacing;
 
-    // Each side's speed toward the other, negative while moving away.
-    const playerApproach = player.velocityX * enemySide;
-    const enemyApproach = -enemy.velocityX * enemySide;
-    const closing = playerApproach + enemyApproach;
-
-    if (closing <= 0) {
-        return;
-    }
-
     // Burst at the player's touching part - sword tip, shield or body.
-    // Deactivated for debugging!!
     spawnParticles(contact.a.x, contact.a.y, COLLISION_PARTICLE_COUNT);
 
     const playerFacesEnemy = playerFacing === enemySide;
@@ -730,52 +685,51 @@ function checkEnemyEncounter() {
     const playerSword = player.sword && playerFacesEnemy && player.sword.y === enemy.y;
     const enemySword = enemyStrike && enemyFacesPlayer && enemyStrike.y === player.y;
 
-    // New speeds away from the other side.
-    let playerAway;
-    let enemyAway;
+    let playerPushed;
+    let enemyPushed;
 
     if (shield) {
-        playerAway = 0;
-        enemyAway = closing;
+        playerPushed = false;
+        enemyPushed = true;
     }
     else if (playerSword && enemySword) {
 
         if (Sword.matches(player.sword.getAscii(), enemyStrike.getAscii())) {
-            playerAway = playerApproach;
-            enemyAway = enemyApproach;
+            playerPushed = true;
+            enemyPushed = true;
             initiative.give(initiative.has(player) ? enemy : player);
         }
-        else if (initiative.has(player)) {
-            playerAway = 0;
-            enemyAway = closing;
-        }
         else {
-            playerAway = closing;
-            enemyAway = 0;
+            playerPushed = !initiative.has(player);
+            enemyPushed = initiative.has(player);
         }
     }
     else if (playerSword) {
-        playerAway = 0;
-        enemyAway = closing;
+        playerPushed = false;
+        enemyPushed = true;
     }
     else if (enemySword) {
-        playerAway = closing + SWORD_IMPULSE;
-        enemyAway = 0;
+        playerPushed = true;
+        enemyPushed = false;
     }
     else {
-        playerAway = enemyApproach;
-        enemyAway = playerApproach;
+        playerPushed = true;
+        enemyPushed = true;
     }
 
-    player.mover.knock(-enemySide * withEncounterPush(playerAway));
-    enemy.mover.knock(enemySide * withEncounterPush(enemyAway));
-}
+    if (playerPushed) {
+        player.pushBack(-enemySide);
+    }
+    else {
+        player.mover.stop();
+    }
 
-
-// A speed away from the other side, plus ENCOUNTER_PUSH if it
-// bounces off at all.
-function withEncounterPush(away) {
-    return away > 0 ? away + ENCOUNTER_PUSH : away;
+    if (enemyPushed) {
+        enemy.pushBack(enemySide);
+    }
+    else {
+        enemy.holdGround();
+    }
 }
 
 

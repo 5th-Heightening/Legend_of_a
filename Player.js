@@ -1,7 +1,22 @@
 class Player extends MovingObject {
 
+    // A push back: how many cells, how fast (cells per second).
+    static PUSHBACK_SPAN = 4;
+    static PUSHBACK_SPEED = 15;
+
+    // How long it stands still after a push back, in ms.
+    static RECOVERY_DELAY = 200;
+
+    // Speed it runs at the enemy with in combat, in cells per second
+    // - see PlayerController.approach().
+    static ATTACK_SPEED = 4;
+
+
     constructor(x, y) {
         super(x, y, 20);
+
+        // Time left standing still after a push back, in ms.
+        this.recoveryTime = 0;
 
         // Last horizontal direction faced, kept even while
         // moving vertically or standing still.
@@ -23,6 +38,30 @@ class Player extends MovingObject {
     }
 
 
+    // Lost an encounter: flies back PUSHBACK_SPAN cells, then
+    // recovers for RECOVERY_DELAY.
+    pushBack(direction) {
+        this.startPush(direction, Player.PUSHBACK_SPAN, Player.PUSHBACK_SPEED);
+        this.recoveryTime = Player.RECOVERY_DELAY;
+    }
+
+
+    // Still standing still after a push back - no approach, no steps,
+    // no dash.
+    get recovering() {
+        return this.recoveryTime > 0;
+    }
+
+
+    // The recovery only counts down once the push back is over.
+    update(dt) {
+
+        if (!this.pushed) {
+            this.recoveryTime = Math.max(0, this.recoveryTime - dt);
+        }
+    }
+
+
     // An action (dash, swing, shield) is still running - no new one
     // can start until it's over.
     get busy() {
@@ -30,7 +69,7 @@ class Player extends MovingObject {
     }
 
 
-    // Behind the shield the player stands still: no steps, no pull.
+    // Behind the shield the player stands still: no steps.
     get rooted() {
         return this.shield !== null;
     }

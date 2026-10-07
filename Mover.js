@@ -2,13 +2,11 @@
 // stay whole cells; the Mover keeps the smooth rest.
 //
 // Horizontally there is exactly one speed, velocityX (cells per
-// second, signed). There is no separate knockback: a push is just
-// a velocity pointing away from whoever pushed. Whatever acts on
-// the object changes that one value:
-// - its own drive (the enemy's patrol) - see setVelocity()
-// - the rubber band's pull in combat - see RubberBand.js
-// - a collision, which sets it anew - see knock()
-// - braking - see brake()
+// second, signed). Two ways to move with it:
+// - setVelocity() - keeps moving until told otherwise (the enemy's
+//   patrol and approach)
+// - travel() - moves exactly a given number of cells, then stops on
+//   its own (a push back, the player's dash)
 //
 // On top of that, single queued steps for grid-exact movement like
 // the player's walk - see queueStep().
@@ -34,6 +32,10 @@ class Mover {
         this.offsetX = 0;
         this.offsetY = 0;
 
+        // Cells left to go on the current travel(), or null while not
+        // travelling.
+        this.remainingX = null;
+
         // Whole cells to move on the next advance(), on top of the
         // velocities - see queueStep().
         this.queuedX = 0;
@@ -44,39 +46,35 @@ class Mover {
     setVelocity(velocityX, velocityY) {
         this.velocityX = velocityX;
         this.velocityY = velocityY;
+        this.remainingX = null;
     }
 
 
-    // Adds a signed horizontal velocity (cells per second).
-    accelerate(velocityX) {
-        this.velocityX += velocityX;
-    }
+    // Moves exactly `cells` cells at the signed `velocityX` (cells per
+    // second), then stops. Starts on a whole cell.
+    travel(velocityX, cells) {
 
-
-    // The outcome of a collision: sets the horizontal speed anew and
-    // forgets the half-crossed cell.
-    knock(velocityX) {
-        this.velocityX = velocityX;
-        this.offsetX = 0;
-    }
-
-
-    // Takes `amount` (cells per second) off the horizontal speed,
-    // stopping at 0 instead of turning around.
-    brake(amount) {
-
-        if (Math.abs(this.velocityX) <= amount) {
+        if (cells <= 0) {
             this.stop();
             return;
         }
 
-        this.velocityX -= Math.sign(this.velocityX) * amount;
+        this.velocityX = velocityX;
+        this.offsetX = 0;
+        this.remainingX = cells;
+    }
+
+
+    // True while a travel() hasn't covered all its cells yet.
+    get traveling() {
+        return this.remainingX !== null;
     }
 
 
     stop() {
         this.velocityX = 0;
         this.offsetX = 0;
+        this.remainingX = null;
     }
 
 
@@ -96,11 +94,27 @@ class Mover {
     }
 
 
+    // A copy of the current movement (without queued steps), to run
+    // ahead without touching the real one - see ContactPredictor.js.
+    clone() {
+        const copy = new Mover();
+
+        copy.velocityX = this.velocityX;
+        copy.velocityY = this.velocityY;
+        copy.offsetX = this.offsetX;
+        copy.offsetY = this.offsetY;
+        copy.remainingX = this.remainingX;
+
+        return copy;
+    }
+
+
     // Advances the smooth position by dt milliseconds and returns
     // the signed whole cells crossed on each axis - the amount the
     // owner should actually move this tick. The fractional rest is
     // kept for the next tick, so e.g. 12.5 cells per second at a 40ms
-    // tick moves one cell every other tick.
+    // tick moves one cell every other tick. A travel() ends exactly
+    // on its last cell.
     advance(dt) {
 
         const seconds = dt / 1000;
@@ -108,11 +122,22 @@ class Mover {
         this.offsetX += this.velocityX * seconds;
         this.offsetY += this.velocityY * seconds;
 
-        const cellsX = Mover.wholeCells(this.offsetX);
+        let cellsX = Mover.wholeCells(this.offsetX);
         const cellsY = Mover.wholeCells(this.offsetY);
 
         this.offsetX -= cellsX;
         this.offsetY -= cellsY;
+
+        if (this.traveling) {
+
+            if (Math.abs(cellsX) >= this.remainingX) {
+                cellsX = Math.sign(cellsX) * this.remainingX;
+                this.stop();
+            }
+            else {
+                this.remainingX -= Math.abs(cellsX);
+            }
+        }
 
         const dx = cellsX + this.queuedX;
         const dy = cellsY + this.queuedY;
