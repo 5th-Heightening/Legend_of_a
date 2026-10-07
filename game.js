@@ -350,7 +350,7 @@ const DASH_SPEED = 12;
 const DASH_DURATION = 320;
 
 // How long each of a swing's frames shows, in ms.
-const SWING_FRAME_DURATION = 80;
+const SWING_FRAME_DURATION = 120;
 
 // How long the shield stays up, in ms.
 const SHIELD_DURATION = 480;
@@ -434,7 +434,7 @@ const ENEMY_ATTACKS = [
 ];
 
 // How long each of a swing's frames shows, in ms.
-const ENEMY_SWING_FRAME_DURATION = 80;
+const ENEMY_SWING_FRAME_DURATION = 120;
 
 // How long the blade stays in front once it got there, in ms.
 const ENEMY_SWORD_HOLD = 600;

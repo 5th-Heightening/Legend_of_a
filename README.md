@@ -325,7 +325,7 @@ key gives exactly one action per press.
 blade character at an offset `dx`/`dy` from the player, written for
 facing right. Facing left, `dx` and the diagonals are mirrored
 (`Sword.MIRRORED`). Each frame shows for `frameDuration`:
-`SWING_FRAME_DURATION` (80ms = 2 ticks) for a swing, `DASH_DURATION`
+`SWING_FRAME_DURATION` (120ms = 3 ticks) for a swing, `DASH_DURATION`
 for the dash's single frame. `x`/`y`/`getAscii()` are getters reading
 the player live, so the blade stays glued to it.
 
@@ -387,9 +387,9 @@ The enemy attacks with the same frames as the player: an
 one of `ENEMY_ATTACKS` — thrust (`Sword.FRAMES.dash`, a plain `-`),
 swing from above or swing from below — picked at random in advance
 (`enemyNextAttack`). A swing shows each frame for
-`ENEMY_SWING_FRAME_DURATION` (80ms), so its blade only reaches the
+`ENEMY_SWING_FRAME_DURATION` (120ms), so its blade only reaches the
 front after a **windup** (`Sword.frontFrameIndex()` × frame time =
-160ms); the enemy starts it that much earlier. It strikes once the
+240ms); the enemy starts it that much earlier. It strikes once the
 predicted contact is `ENEMY_SWORD_LEAD` (80ms) + windup or less away
 — not while it's too far off, or `enemy.swordCooldown` hasn't run
 down to 0. The last frame (`-` in front) stays for
