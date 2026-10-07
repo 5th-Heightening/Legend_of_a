@@ -31,7 +31,7 @@ by `SplashScreen.js`/`SpeechBubble.js` before this split:
 | [Sword.js](Sword.js), [Shield.js](Shield.js) | The player's timed weapons (dash/swing frames, shield), both take a `player` reference in their constructor. |
 | [Ground.js](Ground.js) | Background floor plane. |
 | [Enemy.js](Enemy.js) | Patrolling/combat enemy (`extends MovingObject`). |
-| [EnemySword.js](EnemySword.js) | The enemy's `-` sword, glued to the enemy — see "Enemy" below. |
+| [EnemySword.js](EnemySword.js) | The enemy's sword (`extends Sword`): thrust or swing, plus its cooldown — see "Enemy" below. |
 | [Initiative.js](Initiative.js) | Which fighter has the initiative, drawn as a `!` above it — see "Initiative" below. |
 | [DeathJump.js](DeathJump.js) | Death feedback: a dying character's copy jumps up and falls out of the play area — see "Push" below. |
 | [Particle.js](Particle.js) | Short-lived drifting particle that decays through a random character sequence — see "Particles" below. |
@@ -371,17 +371,21 @@ forward tick by tick, up to `ContactPredictor.LOOKAHEAD` (3s) — the
 same math as the game, so the prediction holds as long as nobody
 presses a key or hits anything.
 
-The enemy draws an `EnemySword` (`z = 25`) once that time is
-`ENEMY_SWORD_LEAD` (80ms) or less, so the strike comes out just before
-contact — there is no windup or warning. Not while the predicted
-contact is too far off, or `enemy.swordCooldown` hasn't run down to 0.
-The sword shows a random position (see "Push") one tile in front of
-the enemy along `direction` for `ENEMY_SWORD_DURATION` (6s), and
-counts in combat for that whole time. Every
-`ENEMY_SWORD_POSITION_INTERVAL` (2s) it switches to another position,
-picked at random from the other two.
+The enemy attacks with the same frames as the player: an
+`EnemySword` ([EnemySword.js](EnemySword.js), `extends Sword`, owner
+= the enemy, whose `facing` comes from `direction`). Each strike is
+one of `ENEMY_ATTACKS` — thrust (`Sword.FRAMES.dash`, a plain `-`),
+swing from above or swing from below — picked at random in advance
+(`enemyNextAttack`). A swing shows each frame for
+`ENEMY_SWING_FRAME_DURATION` (80ms), so its blade only reaches the
+front after a **windup** (`Sword.frontFrameIndex()` × frame time =
+160ms); the enemy starts it that much earlier. It strikes once the
+predicted contact is `ENEMY_SWORD_LEAD` (80ms) + windup or less away
+— not while it's too far off, or `enemy.swordCooldown` hasn't run
+down to 0. The last frame (`-` in front) stays for
+`ENEMY_SWORD_HOLD` (600ms).
 
-After the strike, `sheathe()` clears `enemy.sword` and sets
+Then `putAway()` clears `enemy.sword` and sets
 `enemy.swordCooldown` to `ENEMY_SWORD_COOLDOWN` (0 — no cooldown), counted down
 in `Enemy.update()`. `enemy.sword` is the current sword or `null`, mirroring `player.sword`. Whether it's drawn at the
 moment of impact changes the collision outcome (see "Push" below).
@@ -432,13 +436,13 @@ from the other side):
 | bare-handed | sword drawn | closing speed + `SWORD_IMPULSE` | 0 |
 | bare-handed | unarmed | enemy's speed | player's speed (plain exchange) |
 
-**Sword clash:** every enemy attack picks a random position
-(`EnemySword.POSITIONS`: `"/"`, `"\"`, `"-"`). The fighters face each
-other, so positions are compared mirrored (`Sword.matches()`,
-`Sword.MIRRORED`): `"/"` meets `"\"` and `"-"` meets `"-"` match;
-`"/"` meets `"/"` and `"\"` meets `"\"` don't. The player's side is
-its blade as currently drawn (the swing's current frame), and it only
-counts as "sword drawn" while that blade is on the enemy's row. Matching positions
+**Sword clash:** both blades are compared as currently drawn (the
+current frame of each side's swing). The fighters face each other, so
+they're compared mirrored (`Sword.matches()`, `Sword.MIRRORED`): `"/"`
+meets `"\"` and `"-"` meets `"-"` match; `"/"` meets `"/"` and `"\"`
+meets `"\"` don't — so the same swing on both sides at the same
+moment matches. A blade only counts as "sword drawn" while it's on
+the other fighter's row. Matching positions
 reflect both fighters *and* hand the initiative to the other side (see
 "Initiative"). Non-matching positions push back only whoever doesn't
 hold the initiative.

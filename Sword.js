@@ -1,29 +1,32 @@
-// The player's sword during one action (dash or swing), glued to the
-// player via getters. An action is a list of FRAMES, each one blade
-// character at an offset from the player, shown one after the other
-// for `frameDuration` ms each - counted in game ticks (see update()).
-// After the last frame the sword is put away (alive = false) and
-// clears player.sword itself.
+// A fighter's sword during one action (dash, swing or the enemy's
+// strike), glued to its owner via getters. An action is a list of
+// FRAMES, each one blade character at an offset from the owner,
+// shown one after the other for `frameDuration` ms each - counted in
+// game ticks (see update()). The last frame stays for `holdDuration`
+// (default: frameDuration). Then the sword is put away (alive =
+// false) and clears owner.sword itself.
 //
-// Frames are written for a player facing right; facing left, dx and
-// the diagonal characters are mirrored.
+// The owner needs x, y, facing ("left"/"right") and a sword field.
+// Frames are written for facing right; facing left, dx and the
+// diagonal characters are mirrored.
 class Sword {
 
     static FRAMES = {
 
-        // Sword held straight out in front during the dash.
+        // Sword held straight out in front (the player's dash, the
+        // enemy's thrust).
         dash: [
             { dx: 1, dy: 0, char: "-" }
         ],
 
-        // Swing from above: over the player, diagonal, in front.
+        // Swing from above: over the owner, diagonal, in front.
         overhead: [
             { dx: 0, dy: -1, char: "|" },
             { dx: 1, dy: -1, char: "/" },
             { dx: 1, dy: 0, char: "-" }
         ],
 
-        // Swing from below: under the player, diagonal, in front.
+        // Swing from below: under the owner, diagonal, in front.
         underhand: [
             { dx: 0, dy: 1, char: "|" },
             { dx: 1, dy: 1, char: "\\" },
@@ -41,12 +44,20 @@ class Sword {
     }
 
 
-    constructor(player, frames, frameDuration) {
-        this.player = player;
+    // Index of the first frame with the blade straight in front - when
+    // the blade starts to reach the opponent on the owner's row.
+    static frontFrameIndex(frames) {
+        return frames.findIndex(frame => frame.dx !== 0 && frame.dy === 0);
+    }
+
+
+    constructor(owner, frames, frameDuration, holdDuration = frameDuration) {
+        this.owner = owner;
         this.z = 25;
 
         this.frames = frames;
         this.frameDuration = frameDuration;
+        this.holdDuration = holdDuration;
 
         // Time this action has been out, in ms of game ticks.
         this.elapsed = 0;
@@ -55,21 +66,41 @@ class Sword {
     }
 
 
+    get duration() {
+        return (this.frames.length - 1) * this.frameDuration + this.holdDuration;
+    }
+
+
     // Looks at how long the sword has been out *before* counting
-    // this tick, so each frame is visible for exactly frameDuration.
+    // this tick, so each frame is visible for exactly its time.
     update(dt) {
 
-        if (this.elapsed >= this.frames.length * this.frameDuration) {
-            this.alive = false;
-
-            if (this.player.sword === this) {
-                this.player.sword = null;
-            }
-
+        if (this.elapsed >= this.duration) {
+            this.putAway();
             return;
         }
 
         this.elapsed += dt;
+    }
+
+
+    // True while the sword is out - it counts as a combat part.
+    get drawn() {
+        return this.alive;
+    }
+
+
+    putAway() {
+
+        if (!this.alive) {
+            return;
+        }
+
+        this.alive = false;
+
+        if (this.owner.sword === this) {
+            this.owner.sword = null;
+        }
     }
 
 
@@ -80,17 +111,17 @@ class Sword {
 
 
     get facing() {
-        return this.player.facing === "left" ? -1 : 1;
+        return this.owner.facing === "left" ? -1 : 1;
     }
 
 
     get x() {
-        return this.player.x + this.frame.dx * this.facing;
+        return this.owner.x + this.frame.dx * this.facing;
     }
 
 
     get y() {
-        return this.player.y + this.frame.dy;
+        return this.owner.y + this.frame.dy;
     }
 
 

@@ -436,27 +436,47 @@ function hideShield() {
 // ==================================================
 // Combat: enemy sword
 //
-// The enemy times its attack: every tick it predicts when its
-// sword tip would touch the player (see ContactPredictor.js) and
-// draws the sword (see EnemySword.js) ENEMY_SWORD_LEAD ms or less
-// before the predicted contact - no windup, no warning. While it's
-// out, the sword switches to another position every
-// ENEMY_SWORD_POSITION_INTERVAL ms. It puts the sword away again
-// after ENEMY_SWORD_DURATION, and waits ENEMY_SWORD_COOLDOWN before
-// it can draw again.
+// The enemy attacks with the same sword frames as the player (see
+// Sword.js, EnemySword.js): every strike is one of ENEMY_ATTACKS,
+// picked at random in advance. It times the strike: every tick it
+// predicts when its sword tip would touch the player (see
+// ContactPredictor.js) and starts the next attack so that the blade
+// arrives in front of it ENEMY_SWORD_LEAD ms or less before the
+// predicted contact - a swing starts earlier than a thrust, since
+// its blade first passes over/under the enemy. The blade then stays
+// in front for ENEMY_SWORD_HOLD, and the enemy waits
+// ENEMY_SWORD_COOLDOWN before it can draw again.
 // ==================================================
 
-const ENEMY_SWORD_DURATION = 6000;
-const ENEMY_SWORD_COOLDOWN = 0;
-const ENEMY_SWORD_POSITION_INTERVAL = 2000;
+const ENEMY_ATTACKS = [
+    Sword.FRAMES.dash,
+    Sword.FRAMES.overhead,
+    Sword.FRAMES.underhand
+];
 
-// Latest the strike comes out before the predicted contact (ms).
+// How long each of a swing's frames shows, in ms.
+const ENEMY_SWING_FRAME_DURATION = 80;
+
+// How long the blade stays in front once it got there, in ms.
+const ENEMY_SWORD_HOLD = 600;
+
+const ENEMY_SWORD_COOLDOWN = 0;
+
+// Latest the blade is in front before the predicted contact (ms).
 // At least one TICK_INTERVAL, or the right moment could fall
 // between two ticks.
 const ENEMY_SWORD_LEAD = 80;
 
 // Cells in front of the enemy the strike reaches.
 const ENEMY_SWORD_REACH = 1;
+
+let enemyNextAttack = randomEnemyAttack();
+
+
+function randomEnemyAttack() {
+    return ENEMY_ATTACKS[Math.floor(Math.random() * ENEMY_ATTACKS.length)];
+}
+
 
 const contactPredictor = new ContactPredictor(TICK_INTERVAL);
 
@@ -475,8 +495,8 @@ function playerReach() {
 }
 
 
-// Called every tick - draws the sword once a strike started now
-// would be out right when the sword touches the player.
+// Called every tick - starts the next attack once its blade would
+// be in front right when the sword touches the player.
 function updateEnemySword() {
 
     if (!enemy.alive || enemy.sword || enemy.swordCooldown > 0) {
@@ -493,18 +513,24 @@ function updateEnemySword() {
         CONTACT_DISTANCE
     );
 
+    // Time from starting the attack until its blade is in front.
+    const windup = Sword.frontFrameIndex(enemyNextAttack) * ENEMY_SWING_FRAME_DURATION;
+
     // No contact coming, or still too early.
-    if (eta === null || eta > ENEMY_SWORD_LEAD) {
+    if (eta === null || eta > ENEMY_SWORD_LEAD + windup) {
         return;
     }
 
     enemy.sword = new EnemySword(
         enemy,
-        ENEMY_SWORD_DURATION,
-        ENEMY_SWORD_COOLDOWN,
-        ENEMY_SWORD_POSITION_INTERVAL
+        enemyNextAttack,
+        ENEMY_SWING_FRAME_DURATION,
+        ENEMY_SWORD_HOLD,
+        ENEMY_SWORD_COOLDOWN
     );
     world.add(enemy.sword);
+
+    enemyNextAttack = randomEnemyAttack();
 }
 
 
@@ -574,7 +600,7 @@ function vanishEnemy() {
 
     if (enemy.sword) {
         const sword = enemy.sword;
-        sword.sheathe();
+        sword.putAway();
         world.remove(sword);
     }
 
@@ -700,9 +726,9 @@ function checkEnemyEncounter() {
     const enemyFacesPlayer = enemy.direction === -enemySide;
 
     const shield = player.shield && playerFacesEnemy;
-    // A swing only counts once its blade is on the enemy's row.
+    // A swing only counts once its blade is on the other's row.
     const playerSword = player.sword && playerFacesEnemy && player.sword.y === enemy.y;
-    const enemySword = enemyStrike && enemyFacesPlayer;
+    const enemySword = enemyStrike && enemyFacesPlayer && enemyStrike.y === player.y;
 
     // New speeds away from the other side.
     let playerAway;
@@ -714,7 +740,7 @@ function checkEnemyEncounter() {
     }
     else if (playerSword && enemySword) {
 
-        if (Sword.matches(player.sword.getAscii(), enemyStrike.position)) {
+        if (Sword.matches(player.sword.getAscii(), enemyStrike.getAscii())) {
             playerAway = playerApproach;
             enemyAway = enemyApproach;
             initiative.give(initiative.has(player) ? enemy : player);
