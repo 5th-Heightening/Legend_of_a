@@ -21,7 +21,7 @@ class DeathJump {
         // cells, so y below is the rounded view of it.
         this.posY = y;
         this.velocityY = -DeathJump.JUMP_SPEED;
-         
+
         this.ascii = ascii;
         this.bottomY = bottomY;
 

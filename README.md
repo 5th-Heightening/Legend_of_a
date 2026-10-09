@@ -398,9 +398,11 @@ from the other side):
 **Initiative** ([Initiative.js](Initiative.js), `z = 24`): exactly one
 fighter holds it, shown as `Initiative.MARK` (`"!"`) above its head
 (`MARK_DX`/`MARK_DY`), glued to it via getters and hidden once it's
-dead. The player starts with it. It only changes on a same-stance
-encounter (`initiative.swap()`); the shield and every other case leave
-it where it is.
+dead. The enemy starts with it (a better challenge). It changes on a same-stance
+encounter (`initiative.swap()`), and on an encounter where only one
+fighter has its sword out and the player's shield isn't drawn - then
+it goes to the sword's owner (`initiative.give()`). The shield and
+every other case leave it where it is.
 
 `SWORD_IMPULSE` (6 cells/s, in [game.js](game.js)) is the force the
 enemy's sword adds to the player when it hits. The player's sword

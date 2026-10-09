@@ -26,6 +26,12 @@ class Initiative {
     }
 
 
+    // Hands the initiative to `fighter` (one of the two).
+    give(fighter) {
+        this.holder = fighter;
+    }
+
+
     // Hands the initiative over to the other fighter.
     swap() {
         this.holder = this.holder === this.a ? this.b : this.a;

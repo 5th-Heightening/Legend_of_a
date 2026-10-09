@@ -451,6 +451,8 @@ function armEnemy() {
 // - only the enemy's sword out: the enemy stands firm, the player
 //   bounces off
 // - enemy unarmed: the bodies just exchange their speeds
+// - only one sword out and no shield drawn: that sword's owner gets
+//   the initiative (on top of the rules above)
 // The player bounces off with the closing speed plus SWORD_IMPULSE,
 // the enemy with the closing speed alone. Shield wins if both shield
 // and sword are out at once (blocking takes priority over attacking).
@@ -617,6 +619,12 @@ function checkEnemyEncounter() {
     // Who bounces off - the other one stands firm. Stays null when
     // both are reflected, or the bodies just exchange their speeds.
     let loser = null;
+
+    // Only one sword out and no shield drawn: the initiative goes to
+    // whoever has the sword.
+    if (!player.shield && Boolean(player.sword) !== Boolean(enemy.sword)) {
+        initiative.give(player.sword ? player : enemy);
+    }
 
     if (shield) {
         loser = enemy;
