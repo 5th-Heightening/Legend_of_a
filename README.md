@@ -376,7 +376,12 @@ Without the initiative it stays unarmed; each time the player picks a
 stance (`W`/`S`), the enemy takes the same stance
 `StanceMirror.DELAY` (250 ms) later ([StanceMirror.js](StanceMirror.js),
 counted in ticks; a new stance before then restarts the delay, an
-encounter or death cancels it). `enemy.sword` mirrors `player.sword`.
+encounter or death cancels it). If the player still has no sword (and
+no set up running) when the two are about to collide — same row, at
+most `ENEMY_DRAW_DISTANCE` (3) cells apart, and closing in by position
+or speed — the unarmed enemy draws a random stance after all
+(`armEnemyBeforeContact()`, checked each tick after movement).
+`enemy.sword` mirrors `player.sword`.
 
 The enemy isn't in `parallaxObjects` (it has no corners, its position
 isn't a function of the player) and isn't checked in `wouldCollideAt`.
@@ -424,6 +429,18 @@ adds nothing. After every encounter both swords are put away; the
 enemy draws a new one at once if it holds the initiative, otherwise
 it copies the player's stance (see "Enemy sword"); the player draws
 with `W`/`S`.
+
+The player's sword already counts as drawn while its set up
+(`SwordWindup`) is running — `playerSwordStance()` takes the stance
+from either.
+
+**Encounter log:** with `LOG_ENCOUNTERS = true` (in
+[game.js](game.js)), every encounter writes one line to the browser
+console: both sides' weapons (sword stance, `(set up)`, shield or
+`shield (on back)`), the initiative (`kept` or `before -> after`),
+the rule that decided, who was pushed back, and both resulting speeds
+away from the other side, e.g.
+`Encounter | player: sword above (set up) | enemy: sword below | initiative: enemy (kept) | different stances, the one without initiative is pushed back: player pushed back | speeds away: player 20.0, enemy 0.0 cells/s`.
 
 On top of the table, everyone who bounces off (result > 0) gets
 `ENCOUNTER_PUSH` (1 cell/s) extra; whoever stands firm keeps 0. The

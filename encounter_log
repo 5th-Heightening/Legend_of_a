@@ -1,0 +1,34 @@
+Encounter | player: sword above | enemy: sword above | initiative: enemy -> player | same stance, initiative swaps: both bounce | speeds away: player 18.0, enemy 18.0 cells/s game.js:867:13
+Encounter | player: sword below | enemy: sword below | initiative: player -> enemy | same stance, initiative swaps: both bounce | speeds away: player 18.0, enemy 18.0 cells/s game.js:867:13
+Encounter | player: sword below | enemy: sword below | initiative: enemy -> player | same stance, initiative swaps: both bounce | speeds away: player 18.0, enemy 18.0 cells/s game.js:867:13
+Encounter | player: sword above | enemy: sword above | initiative: player -> enemy | same stance, initiative swaps: both bounce | speeds away: player 18.0, enemy 18.0 cells/s game.js:867:13
+Encounter | player: sword below | enemy: sword below | initiative: enemy -> player | same stance, initiative swaps: both bounce | speeds away: player 18.0, enemy 18.0 cells/s game.js:867:13
+Encounter | player: sword above | enemy: unarmed | initiative: player (kept) | only one sword, its owner gets the initiative: enemy pushed back | speeds away: player 0.0, enemy 30.0 cells/s game.js:867:13
+Encounter | player: unarmed | enemy: sword above | initiative: player -> enemy | only one sword, its owner gets the initiative: player pushed back | speeds away: player 32.9, enemy 0.0 cells/s game.js:867:13
+Encounter | player: sword above (set up) | enemy: sword above | initiative: enemy -> player | same stance, initiative swaps: both bounce | speeds away: player 17.8, enemy 18.0 cells/s game.js:867:13
+Encounter | player: sword below | enemy: unarmed | initiative: player (kept) | only one sword, its owner gets the initiative: enemy pushed back | speeds away: player 0.0, enemy 30.0 cells/s game.js:867:13
+Encounter | player: sword below (set up) | enemy: sword above | initiative: player (kept) | different stances, the one without initiative is pushed back: enemy pushed back | speeds away: player 0.0, enemy 26.9 cells/s game.js:867:13
+Encounter | player: unarmed | enemy: sword below | initiative: player -> enemy | only one sword, its owner gets the initiative: player pushed back | speeds away: player 30.2, enemy 0.0 cells/s game.js:867:13
+Encounter | player: sword above | enemy: sword above | initiative: enemy -> player | same stance, initiative swaps: both bounce | speeds away: player 14.6, enemy 18.0 cells/s game.js:867:13
+Encounter | player: sword below (set up) | enemy: sword above | initiative: player (kept) | different stances, the one without initiative is pushed back: enemy pushed back | speeds away: player 0.0, enemy 30.0 cells/s game.js:867:13
+Encounter | player: unarmed | enemy: sword above | initiative: player -> enemy | only one sword, its owner gets the initiative: player pushed back | speeds away: player 32.9, enemy 0.0 cells/s game.js:867:13
+Encounter | player: sword below (set up) | enemy: sword below | initiative: enemy -> player | same stance, initiative swaps: both bounce | speeds away: player 17.8, enemy 18.0 cells/s game.js:867:13
+Encounter | player: sword above (set up) | enemy: sword below | initiative: player (kept) | different stances, the one without initiative is pushed back: enemy pushed back | speeds away: player 0.0, enemy 30.0 cells/s game.js:867:13
+Encounter | player: sword above | enemy: sword above | initiative: player -> enemy | same stance, initiative swaps: both bounce | speeds away: player 18.0, enemy 14.9 cells/s game.js:867:13
+Encounter | player: sword below (set up) | enemy: sword above | initiative: enemy (kept) | different stances, the one without initiative is pushed back: player pushed back | speeds away: player 36.0, enemy 0.0 cells/s game.js:867:13
+Encounter | player: unarmed | enemy: sword above | initiative: enemy (kept) | only one sword, its owner gets the initiative: player pushed back | speeds away: player 36.0, enemy 0.0 cells/s game.js:867:13
+Encounter | player: sword above | enemy: sword below | initiative: enemy (kept) | different stances, the one without initiative is pushed back: player pushed back | speeds away: player 36.0, enemy 0.0 cells/s game.js:867:13
+Encounter | player: sword below | enemy: sword below | initiative: enemy -> player | same stance, initiative swaps: both bounce | speeds away: player 18.0, enemy 18.0 cells/s game.js:867:13
+
+####
+
+Encounter | player: sword below | enemy: sword below | initiative: enemy -> player | same stance, initiative swaps: both bounce | speeds away: player 18.0, enemy 18.0 cells/s game.js:867:13
+Encounter | player: sword above | enemy: sword above | initiative: player -> enemy | same stance, initiative swaps: both bounce | speeds away: player 18.0, enemy 18.0 cells/s game.js:867:13
+
+Encounter | player: unarmed | enemy: sword above | initiative: enemy (kept) | only one sword, its owner gets the initiative: player pushed back | speeds away: player 36.0, enemy 0.0 cells/s game.js:867:13
+Encounter | player: sword above | enemy: sword above | initiative: enemy -> player | same stance, initiative swaps: both bounce | speeds away: player 18.0, enemy 18.0 cells/s game.js:867:13
+Encounter | player: unarmed | enemy: sword above | initiative: player -> enemy | only one sword, its owner gets the initiative: player pushed back | speeds away: player 36.0, enemy 0.0 cells/s game.js:867:13
+Encounter | player: unarmed | enemy: sword above | initiative: enemy (kept) | only one sword, its owner gets the initiative: player pushed back | speeds away: player 36.0, enemy 0.0 cells/s
+
+
+
