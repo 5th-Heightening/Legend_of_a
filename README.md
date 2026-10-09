@@ -28,6 +28,7 @@ by `SplashScreen.js`/`SpeechBubble.js` before this split:
 | [Player.js](Player.js) | Player state (`extends MovingObject`): facing and `sword`/`shield` weapon references. |
 | [PlayerController.js](PlayerController.js) | Arrow-key input → player steps / braking / combat impulses, sampled once per tick. |
 | [Sword.js](Sword.js) | A fighter's sword (player's and enemy's), held above or below its owner — see "Combat" below. |
+| [SwordWindup.js](SwordWindup.js) | Short set up mark above/below the player before its sword is out — see "Combat" below. |
 | [Shield.js](Shield.js) | The player's shield, takes a `player` reference in its constructor. |
 | [Initiative.js](Initiative.js) | Which fighter has the initiative, shown as a `!` above its head — see "Push" below. |
 | [StanceMirror.js](StanceMirror.js) | Delayed copy of the player's stance for the enemy without the initiative — see "Enemy sword" below. |
@@ -57,7 +58,7 @@ fails at the first `new` call, not at parse time:
    specifically, since `class Tree extends ParallaxObject` needs
    `ParallaxObject` to already exist.
 3. `Mover.js`, `MovingObject.js`, `MovementSystem.js`,
-   `RubberBand.js`, then `Player.js`, `PlayerController.js`, `Sword.js`, `Shield.js`,
+   `RubberBand.js`, then `Player.js`, `PlayerController.js`, `Sword.js`, `SwordWindup.js`, `Shield.js`,
    `Initiative.js`, `StanceMirror.js`, `Ground.js`, `Enemy.js`, `Squiggle.js`,
    `BlinkingText.js`, `SplashScreen.js`. `MovingObject.js` must come
    before `Player.js`/`Enemy.js` (they `extends MovingObject`).
@@ -312,11 +313,18 @@ character.
   **above** (`W`, on the row above) or **below** (`S`, on the row
   below). The char is a diagonal pointing away from the owner: facing
   right, above is `"/"` and below `"\"`; facing left, they're
-  mirrored (`Sword.MIRRORED`). No swing, no warm up, no
-  cool down: `drawSword(stance)` puts it out at once, and pressing the
-  other key while it's out just switches `sword.stance`. It stays out
-  until the next encounter, which puts it away (`sheatheSword()`);
-  then the player has to press `W`/`S` again. The same class is the
+  mirrored (`Sword.MIRRORED`). No swing, no cool down. For the
+  player, `drawSword(stance)` first shows a set up
+  ([SwordWindup.js](SwordWindup.js), `z = 26`): `SwordWindup.CHAR`
+  (`"|"`) straight above the player for above, straight below for
+  below, covering the initiative `!`. After `SwordWindup.DURATION`
+  (250 ms, counted in ticks) the sword is out. The other key during
+  the set up only changes its stance (the time left stays); an
+  encounter or death cancels it (`cancelWindup()`). With the sword
+  out, `W`/`S` switch `sword.stance` at once. Key auto-repeat is
+  ignored for `W`/`S`. The sword stays out until the next encounter,
+  which puts it away (`sheatheSword()`); then the player has to press
+  `W`/`S` again. The enemy draws without a set up. The same class is the
   enemy's sword (see "Enemy"; `enemy.facing` follows its
   `direction`). It isn't on its owner's row, so it adds no reach — it
   only decides the outcome of an encounter (see "Push").
@@ -366,7 +374,7 @@ initiative, it draws a `Sword` (see "Combat") right away in a stance
 picked at random (`Sword.randomStance()`) — no warm up, no cool down.
 Without the initiative it stays unarmed; each time the player picks a
 stance (`W`/`S`), the enemy takes the same stance
-`StanceMirror.DELAY` (1000 ms) later ([StanceMirror.js](StanceMirror.js),
+`StanceMirror.DELAY` (250 ms) later ([StanceMirror.js](StanceMirror.js),
 counted in ticks; a new stance before then restarts the delay, an
 encounter or death cancels it). `enemy.sword` mirrors `player.sword`.
 

@@ -351,10 +351,11 @@ function startGame() {
 // ==================================================
 // Combat: sword stance (W above, S below) and shield (A, held)
 //
-// The sword has no swing and no timing (see Sword.js): W/S draw it
-// above/below the player at once, and it stays until the next
-// encounter puts it away. With the sword already out, W/S just switch
-// the stance.
+// The sword has no swing (see Sword.js). W/S first show a short set
+// up above/below the player (see SwordWindup.js); once that runs out
+// the sword is drawn, and it stays until the next encounter puts it
+// away. An encounter during the set up cancels it. With the sword
+// already out, W/S just switch the stance at once.
 // ==================================================
 
 function drawSword(stance) {
@@ -374,8 +375,29 @@ function drawSword(stance) {
         return;
     }
 
-    player.sword = new Sword(player, stance);
-    world.add(player.sword);
+    if (player.windup) {
+        player.windup.stance = stance;
+        return;
+    }
+
+    player.windup = new SwordWindup(player, stance, readyStance => {
+        player.windup = null;
+        player.sword = new Sword(player, readyStance);
+        world.add(player.sword);
+    });
+    world.add(player.windup);
+}
+
+
+// Drops the player's sword set up, if one is running.
+function cancelWindup() {
+
+    if (!player.windup) {
+        return;
+    }
+
+    world.remove(player.windup);
+    player.windup = null;
 }
 
 
@@ -543,6 +565,7 @@ function killPlayer() {
     player.mover.stop();
 
     sheatheSword(player);
+    cancelWindup();
     hideShield();
     stopSquiggle();
     enemyMirror.cancel();
@@ -687,6 +710,7 @@ function checkEnemyEncounter() {
     enemy.mover.knock(enemySide * withEncounterPush(enemyAway));
 
     sheatheSword(player);
+    cancelWindup();
     armEnemy();
 }
 
@@ -770,13 +794,19 @@ document.addEventListener("keydown", event => {
 
     const key = event.key.toLowerCase();
 
+    // Auto-repeat is ignored: a held key would keep restarting the
+    // enemy's copy (see StanceMirror.js).
     if (key === "w") {
-        drawSword("above");
+        if (!event.repeat) {
+            drawSword("above");
+        }
         return;
     }
 
     if (key === "s") {
-        drawSword("below");
+        if (!event.repeat) {
+            drawSword("below");
+        }
         return;
     }
 

@@ -13,6 +13,10 @@ class Player extends MovingObject {
         this.sword = null;
         this.shield = null;
 
+        // Set up before the sword is out (see SwordWindup.js), or
+        // null.
+        this.windup = null;
+
         // Decorative letter string while "D" is held, or null - see
         // startSquiggle()/stopSquiggle() in game.js.
         this.squiggle = null;
