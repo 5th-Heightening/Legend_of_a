@@ -39,6 +39,7 @@ const movement = new MovementSystem();
 // 1. input - the arrow keys pressed/held since the last tick
 // 2. objects - enemy AI, particles, ...
 // 3. enemy stance mirror, rubber band - player and enemy pull on each other in combat
+//    (a player with the shield up is held in place right after)
 // 4. movement - everything that moves, one cell at a time
 // 5. combat - player/enemy encounter
 // 6. draw
@@ -53,6 +54,11 @@ function tick(dt) {
     if (gameStarted) {
         enemyMirror.update(dt);
         rubberBand.update(dt);
+
+        if (player.shield) {
+            player.mover.stop();
+        }
+
         movement.update(dt);
         checkEnemyEncounter();
     }
@@ -349,7 +355,10 @@ function startGame() {
 
 
 // ==================================================
-// Combat: sword stance (W above, S below) and shield (A, held)
+// Combat: sword stance (W above, S below) and shield (A)
+//
+// A raises the shield for Shield.DURATION; releasing the key doesn't
+// lower it. While it's up the player stands still and can't move.
 //
 // The sword has no swing (see Sword.js). W/S first show a short set
 // up above/below the player (see SwordWindup.js); once that runs out
@@ -414,13 +423,20 @@ function sheatheSword(fighter) {
 }
 
 
+// Raises the shield: the player stops at once and stays put until it
+// comes down - after Shield.DURATION, or at the next encounter (see
+// checkEnemyEncounter()).
 function showShield() {
 
     if (!player.alive || player.shield) {
         return;
     }
 
-    player.shield = new Shield(player);
+    player.mover.stop();
+
+    player.shield = new Shield(player, () => {
+        player.shield = null;
+    });
     world.add(player.shield);
 }
 
@@ -709,6 +725,11 @@ function checkEnemyEncounter() {
     player.mover.knock(-enemySide * withEncounterPush(playerAway));
     enemy.mover.knock(enemySide * withEncounterPush(enemyAway));
 
+    // The shield comes down once it has done its job (enemy pushed
+    // back). Any other encounter takes it down too, so a push on the
+    // player isn't swallowed by the shield holding it in place.
+    hideShield();
+
     sheatheSword(player);
     cancelWindup();
     armEnemy();
@@ -810,8 +831,12 @@ document.addEventListener("keydown", event => {
         return;
     }
 
+    // Auto-repeat ignored here too: holding A shouldn't raise the
+    // shield again the moment it wears off.
     if (key === "a") {
-        showShield();
+        if (!event.repeat) {
+            showShield();
+        }
         return;
     }
 
@@ -829,10 +854,6 @@ document.addEventListener("keydown", event => {
 document.addEventListener("keyup", event => {
 
     const key = event.key.toLowerCase();
-
-    if (key === "a") {
-        hideShield();
-    }
 
     if (key === "d") {
         stopSquiggle();

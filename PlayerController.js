@@ -18,6 +18,8 @@
 // press adds COMBAT_IMPULSE to the player's speed once instead -
 // holding the key adds nothing more. The player keeps facing the
 // enemy. Up/down step as usual.
+//
+// While the shield is up, all movement input is ignored.
 class PlayerController {
 
     static DIRECTIONS = {
@@ -96,6 +98,13 @@ class PlayerController {
     update(dt) {
 
         const presses = this.presses.splice(0);
+
+        // Shield up: no movement at all - presses made meanwhile are
+        // dropped (game.js holds the player in place, see tick()).
+        if (this.player.shield) {
+            this.holdTime = 0;
+            return;
+        }
         const key = presses.at(-1) ?? this.heldArrows.at(-1);
         const mover = this.player.mover;
         const inCombat = this.rubberBand !== null && this.rubberBand.engaged();

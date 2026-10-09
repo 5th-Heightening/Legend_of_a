@@ -29,7 +29,7 @@ by `SplashScreen.js`/`SpeechBubble.js` before this split:
 | [PlayerController.js](PlayerController.js) | Arrow-key input → player steps / braking / combat impulses, sampled once per tick. |
 | [Sword.js](Sword.js) | A fighter's sword (player's and enemy's), held above or below its owner — see "Combat" below. |
 | [SwordWindup.js](SwordWindup.js) | Short set up mark above/below the player before its sword is out — see "Combat" below. |
-| [Shield.js](Shield.js) | The player's shield, takes a `player` reference in its constructor. |
+| [Shield.js](Shield.js) | The player's shield: lasts `Shield.DURATION`, roots the player while up — see "Combat" below. |
 | [Initiative.js](Initiative.js) | Which fighter has the initiative, shown as a `!` above its head — see "Push" below. |
 | [StanceMirror.js](StanceMirror.js) | Delayed copy of the player's stance for the enemy without the initiative — see "Enemy sword" below. |
 | [Ground.js](Ground.js) | Background floor plane. |
@@ -328,19 +328,19 @@ character.
   enemy's sword (see "Enemy"; `enemy.facing` follows its
   `direction`). It isn't on its owner's row, so it adds no reach — it
   only decides the outcome of an encounter (see "Push").
-- **`Shield`** (`A`, held) is the opposite: no timer, glued to the
-  player for as long as the key is down. Its `x`/`y`/`getAscii()` are
-  getters reading `player.x`/`player.y`/`player.facing` live, so it
-  stays correctly positioned through any moves made while `A` is held,
-  with no per-move update needed. `showShield()` on `keydown` and
-  `hideShield()` on a separate `keyup` listener add/remove it;
-  `showShield()` is idempotent (checks `player.shield` first) so
-  repeated auto-repeat keydowns while holding `A` are harmless.
-  Character is `"["` when facing left, `"]"` when facing right.
-
-Known gap: if the browser never delivers a `keyup` for `A` (e.g. focus
-leaves the page while it's held), the shield can get stuck on. There's
-no blur-handler safety net for that yet.
+- **`Shield`** (`A`) is raised by `showShield()` on `keydown` (auto-repeat
+  ignored) and lasts `Shield.DURATION` (750 ms, counted in ticks);
+  releasing `A` doesn't lower it. It also comes down at the next
+  encounter (`hideShield()` in `checkEnemyEncounter()`) — with the
+  shield facing the enemy that's the enemy being pushed back; any
+  other encounter takes it down too, so a push on the player isn't
+  swallowed. While it's up the player stops and can't move:
+  `PlayerController.update()` ignores all arrow input, and `tick()`
+  stops the player's `Mover` right after the rubber band's pull.
+  `showShield()` is idempotent (checks `player.shield` first). Its
+  `x`/`y`/`getAscii()` are getters reading `player.x`/`player.y`/
+  `player.facing` live. Character is `"["` when facing left, `"]"`
+  when facing right.
 
 ## Enemy
 
@@ -570,8 +570,7 @@ reaches `Squiggle.MAX_LENGTH` it keeps being re-rolled at that
 length, so it flickers for as long as `D` is held. It's glued to the player via getters
 (it keeps its shape while the player moves) and is removed on
 `keyup`. Purely decorative — no collision check reads it, so it
-never affects combat. Like the shield, a missed `keyup` would leave
-it stuck on.
+never affects combat. A missed `keyup` would leave it stuck on.
 
 ## Parallax scenery
 

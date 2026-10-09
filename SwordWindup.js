@@ -10,7 +10,7 @@
 // shown.
 class SwordWindup {
 
-    static DURATION = 250;
+    static DURATION = 125;
 
     static CHAR = "|";
 
