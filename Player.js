@@ -8,8 +8,8 @@ class Player extends MovingObject {
         this.facing = "right";
 
         // Currently-equipped weapons, or null when not out. Set/
-        // cleared by swingSword()/showShield()/hideShield() in
-        // game.js (a finished swing clears itself, see Sword.js).
+        // cleared by drawSword()/sheatheSword()/showShield()/
+        // hideShield() in game.js.
         this.sword = null;
         this.shield = null;
 

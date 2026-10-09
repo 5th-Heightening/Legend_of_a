@@ -21,7 +21,7 @@ const renderer = new AsciiRenderer(
 // Game loop
 //
 // Everything advances on one shared, fixed tick (see GameLoop.js):
-// player input, enemy AI, movement, weapon timers, hit checks,
+// player input, enemy AI, movement, hit checks,
 // particles. The screen is drawn once, at the end of each tick.
 // All durations in the game are counted in these ticks, so the same
 // situation always plays out the same way.
@@ -37,10 +37,10 @@ const movement = new MovementSystem();
 
 // The order of one tick:
 // 1. input - the arrow keys pressed/held since the last tick
-// 2. objects - enemy AI, weapon timers, particles, ...
+// 2. objects - enemy AI, particles, ...
 // 3. rubber band - player and enemy pull on each other in combat
 // 4. movement - everything that moves, one cell at a time
-// 5. combat - enemy sword, player/enemy encounter
+// 5. combat - player/enemy encounter
 // 6. draw
 function tick(dt) {
 
@@ -53,7 +53,6 @@ function tick(dt) {
     if (gameStarted) {
         rubberBand.update(dt);
         movement.update(dt);
-        updateEnemySword();
         checkEnemyEncounter();
     }
 
@@ -338,24 +337,45 @@ function startGame() {
 
     registerMovement();
     updateParallax();
+    armEnemy();
 }
 
 
 // ==================================================
-// Combat: sword swing (W, one-shot) and shield (A, held)
+// Combat: sword stance (W above, S below) and shield (A, held)
+//
+// The sword has no swing and no timing (see Sword.js): W/S draw it
+// above/below the player at once, and it stays until the next
+// encounter puts it away. With the sword already out, W/S just switch
+// the stance.
 // ==================================================
 
-const SWORD_FRAME_DURATION = 120;
+function drawSword(stance) {
 
-function swingSword() {
-
-    // A swing already in progress isn't interrupted or restarted.
-    if (!player.alive || player.sword) {
+    if (!player.alive) {
         return;
     }
 
-    player.sword = new Sword(player, SWORD_FRAME_DURATION);
+    if (player.sword) {
+        player.sword.stance = stance;
+        return;
+    }
+
+    player.sword = new Sword(player, stance);
     world.add(player.sword);
+}
+
+
+// Puts away the sword of a fighter (player or enemy), if it has one
+// out.
+function sheatheSword(fighter) {
+
+    if (!fighter.sword) {
+        return;
+    }
+
+    world.remove(fighter.sword);
+    fighter.sword = null;
 }
 
 
@@ -384,70 +404,21 @@ function hideShield() {
 // ==================================================
 // Combat: enemy sword
 //
-// The enemy times its attack: every tick it predicts when its
-// sword tip would touch the player (see ContactPredictor.js) and
-// lifts the sword ("|", see EnemySword.js) just early enough that
-// the strike ("-") is out at that moment - ENEMY_SWORD_WINDUP ms of
-// warning, then the strike ENEMY_SWORD_LEAD ms or less before the
-// predicted contact. It puts the sword away again after
-// ENEMY_SWORD_DURATION, and waits ENEMY_SWORD_COOLDOWN before it can
-// lift it again.
+// The enemy always has its sword out, in a stance picked at random
+// (see Sword.randomStance()). Every encounter puts it away, and the
+// enemy draws it again right away in a new random stance - no warm
+// up, no cool down.
 // ==================================================
 
-const ENEMY_SWORD_WINDUP = 200;
-const ENEMY_SWORD_DURATION = 700;
-const ENEMY_SWORD_COOLDOWN = 800;
+function armEnemy() {
 
-// Latest the strike comes out before the predicted contact (ms).
-// At least one TICK_INTERVAL, or the right moment could fall
-// between two ticks.
-const ENEMY_SWORD_LEAD = 80;
-
-// Cells in front of the enemy the strike reaches.
-const ENEMY_SWORD_REACH = 1;
-
-const contactPredictor = new ContactPredictor(TICK_INTERVAL);
-
-
-// Cells the player reaches toward the enemy right now - one more
-// with a sword or shield out on that side.
-function playerReach() {
-    const facing = player.facing === "left" ? -1 : 1;
-    const weaponOut = player.sword || player.shield;
-
-    return weaponOut && facing === Math.sign(enemy.x - player.x) ? 1 : 0;
-}
-
-
-// Called every tick - draws the sword once a strike started now
-// would be out right when the sword touches the player.
-function updateEnemySword() {
-
-    if (!enemy.alive || enemy.sword || enemy.swordCooldown > 0) {
+    if (!enemy.alive) {
         return;
     }
 
-    if (!player.alive) {
-        return;
-    }
+    sheatheSword(enemy);
 
-    const eta = contactPredictor.timeToContact(
-        enemy, ENEMY_SWORD_REACH,
-        player, playerReach(),
-        CONTACT_DISTANCE
-    );
-
-    // No contact coming, or too early / already too late to wind up.
-    if (eta === null || eta < ENEMY_SWORD_WINDUP || eta > ENEMY_SWORD_WINDUP + ENEMY_SWORD_LEAD) {
-        return;
-    }
-
-    enemy.sword = new EnemySword(
-        enemy,
-        ENEMY_SWORD_WINDUP,
-        ENEMY_SWORD_DURATION,
-        ENEMY_SWORD_COOLDOWN
-    );
+    enemy.sword = new Sword(enemy, Sword.randomStance());
     world.add(enemy.sword);
 }
 
@@ -466,15 +437,17 @@ function updateEnemySword() {
 // up to the closing speed. Decided by both sides' weapons:
 // - shield up: a reflector - the player stands firm (speed 0), the
 //   enemy bounces off with the whole closing speed
-// - both swords drawn: a reflection - each side keeps its own speed,
-//   turned around (multiplied by -1)
-// - only the player's sword drawn: the player stands firm, the enemy
-//   bounces off with the closing speed
-// - only the enemy's sword drawn: the enemy stands firm, the player
-//   bounces off with the closing speed plus SWORD_IMPULSE
-// - neither armed: the bodies just exchange their speeds
-// Shield wins if somehow both shield and sword are active at
-// once (blocking takes priority over attacking).
+// - player's sword in the same stance as the enemy's: same as the
+//   shield - the enemy bounces off
+// - otherwise, with the enemy's sword out (different stance, or the
+//   player has none): the enemy stands firm, the player bounces off
+//   with the closing speed plus SWORD_IMPULSE
+// - enemy unarmed: the bodies just exchange their speeds
+// Shield wins if both shield and sword are out at once (blocking
+// takes priority over attacking).
+//
+// Every encounter puts both swords away; the enemy draws a new one
+// right away (see armEnemy()), the player with W/S.
 // ==================================================
 
 // Cells per second the enemy's sword adds to the player's speed when
@@ -511,11 +484,7 @@ function vanishEnemy() {
     enemy.alive = false;
     enemy.mover.stop();
 
-    if (enemy.sword) {
-        const sword = enemy.sword;
-        sword.sheathe();
-        world.remove(sword);
-    }
+    sheatheSword(enemy);
 
     world.remove(enemy);
     movement.remove(enemy);
@@ -532,11 +501,7 @@ function killPlayer() {
     player.alive = false;
     player.mover.stop();
 
-    if (player.sword) {
-        world.remove(player.sword);
-        player.sword = null;
-    }
-
+    sheatheSword(player);
     hideShield();
     stopSquiggle();
 
@@ -563,7 +528,8 @@ const CONTACT_DISTANCE = 1;
 
 
 // The cells a side takes up in the fight: its body plus every
-// weapon it currently has out.
+// weapon it currently has out in front. Swords don't count - they're
+// held on the rows above/below and add no reach.
 function combatParts(body, ...weapons) {
     return [body, ...weapons.filter(Boolean)];
 }
@@ -586,27 +552,23 @@ function findContact(partsA, partsB) {
 
 
 // Checked once per tick, after everything has moved. Fires as soon
-// as any part of the player (body, sword, shield) touches any part
-// of the enemy (body, sword) - see findContact() - while the two are
-// closing in on each other. Once they fly apart it can't fire again,
-// so staying in contact doesn't keep re-triggering it.
+// as any part of the player (body, shield) touches the enemy's body
+// - see findContact() - while the two are closing in on each other.
+// Once they fly apart it can't fire again, so staying in contact
+// doesn't keep re-triggering it.
 //
 // Everything directional follows from one `enemySide`: who is
-// pushed which way, and whether each side's weapon actually faces
-// the other (a shield on the back doesn't block, a sword pointing
-// away doesn't hit).
+// pushed which way, and whether the shield actually faces the enemy
+// (a shield on the back doesn't block).
 function checkEnemyEncounter() {
 
     if (!enemy.alive || !player.alive) {
         return;
     }
 
-    // A sword still being lifted (windup) doesn't count yet.
-    const enemyStrike = enemy.sword && enemy.sword.drawn ? enemy.sword : null;
-
     const contact = findContact(
-        combatParts(player, player.sword, player.shield),
-        combatParts(enemy, enemyStrike)
+        combatParts(player, player.shield),
+        combatParts(enemy)
     );
 
     if (!contact) {
@@ -632,34 +594,21 @@ function checkEnemyEncounter() {
         return;
     }
 
-    // Burst at the player's touching part - sword tip, shield or body.
-    // Deactivated for debugging!!
+    // Burst at the player's touching part - shield or body.
     spawnParticles(contact.a.x, contact.a.y, COLLISION_PARTICLE_COUNT);
 
-    const playerFacesEnemy = playerFacing === enemySide;
-    const enemyFacesPlayer = enemy.direction === -enemySide;
-
-    const shield = player.shield && playerFacesEnemy;
-    const playerSword = player.sword && playerFacesEnemy;
-    const enemySword = enemyStrike && enemyFacesPlayer;
+    const shield = player.shield && playerFacing === enemySide;
+    const sameStance = player.sword && enemy.sword && player.sword.stance === enemy.sword.stance;
 
     // New speeds away from the other side.
     let playerAway;
     let enemyAway;
 
-    if (shield) {
+    if (shield || sameStance) {
         playerAway = 0;
         enemyAway = closing;
     }
-    else if (playerSword && enemySword) {
-        playerAway = playerApproach;
-        enemyAway = enemyApproach;
-    }
-    else if (playerSword) {
-        playerAway = 0;
-        enemyAway = closing;
-    }
-    else if (enemySword) {
+    else if (enemy.sword) {
         playerAway = closing + SWORD_IMPULSE;
         enemyAway = 0;
     }
@@ -670,6 +619,9 @@ function checkEnemyEncounter() {
 
     player.mover.knock(-enemySide * withEncounterPush(playerAway));
     enemy.mover.knock(enemySide * withEncounterPush(enemyAway));
+
+    sheatheSword(player);
+    armEnemy();
 }
 
 
@@ -753,13 +705,12 @@ document.addEventListener("keydown", event => {
     const key = event.key.toLowerCase();
 
     if (key === "w") {
+        drawSword("above");
+        return;
+    }
 
-        // Ignore auto-repeat while the key is held - one press,
-        // one swing.
-        if (!event.repeat) {
-            swingSword();
-        }
-
+    if (key === "s") {
+        drawSword("below");
         return;
     }
 

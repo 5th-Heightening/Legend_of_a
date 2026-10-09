@@ -72,8 +72,7 @@ class RubberBand {
 
 
     // The velocity after one tick of pull toward direction `toward`
-    // (-1/1; 0 = same column, no pull). Also used to predict contact,
-    // see ContactPredictor.js.
+    // (-1/1; 0 = same column, no pull).
     static pulledVelocity(velocity, toward, dt) {
 
         if (toward === 0) {

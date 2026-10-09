@@ -1,66 +1,60 @@
-// One-shot sword swing, one tile in front of the player. Starts
-// as "/" or "\", switches to "_" after frameDuration ms, and is gone
-// after another frameDuration - counted in game ticks (see
-// update()). Glued to the player via getters, like Shield - x/y and
-// the slash direction track the player's current position/facing
-// rather than freezing at swing start.
+// A fighter's sword, held in one of two STANCES: one cell in front
+// of its owner (player or enemy), on the row above or below it. No
+// swing and no timing - it's out the moment it's drawn and stays
+// until the next encounter puts it away (see sheatheSword() in
+// game.js). Glued to the owner via getters, like Shield, so it moves
+// and turns along.
+//
+// Each stance's char is written for facing right; facing left it's
+// mirrored, so the blade always reads as a diagonal line pointing
+// away from the owner.
+//
+// The owner needs x, y, facing ("left"/"right") and a sword field.
 class Sword {
 
-    constructor(player, frameDuration) {
-        this.player = player;
-        this.z = 25;
+    static STANCES = {
+        above: { dy: -1, char: "/" },
+        below: { dy: 1, char: "\\" }
+    };
 
-        this.frameDuration = frameDuration;
+    static STANCE_NAMES = Object.keys(Sword.STANCES);
 
-        // Time this swing has been out, in ms of game ticks.
-        this.elapsed = 0;
+    static MIRRORED = { "/": "\\", "\\": "/" };
 
-        // Flips from "slash" to "dash" after frameDuration.
-        this.frame = "slash";
 
-        this.alive = true;
+    static randomStance() {
+        const names = Sword.STANCE_NAMES;
+        return names[Math.floor(Math.random() * names.length)];
     }
 
 
-    // Looks at how long the swing has been out *before* counting
-    // this tick, so it's visible for exactly 2 x frameDuration.
-    update(dt) {
+    // `stance` is one of STANCE_NAMES; it can be changed while the
+    // sword is out.
+    constructor(owner, stance) {
+        this.owner = owner;
+        this.z = 25;
 
-        if (this.elapsed >= this.frameDuration * 2) {
-            this.alive = false;
+        this.stance = stance;
+    }
 
-            if (this.player.sword === this) {
-                this.player.sword = null;
-            }
 
-            return;
-        }
-
-        if (this.elapsed >= this.frameDuration) {
-            this.frame = "dash";
-        }
-
-        this.elapsed += dt;
+    get facing() {
+        return this.owner.facing === "left" ? -1 : 1;
     }
 
 
     get x() {
-        const offset = this.player.facing === "left" ? -1 : 1;
-        return this.player.x + offset;
+        return this.owner.x + this.facing;
     }
 
 
     get y() {
-        return this.player.y;
+        return this.owner.y + Sword.STANCES[this.stance].dy;
     }
 
 
     getAscii() {
-
-        if (this.frame === "dash") {
-            return "_";
-        }
-
-        return this.player.facing === "left" ? "\\" : "/";
+        const char = Sword.STANCES[this.stance].char;
+        return this.facing < 0 ? Sword.MIRRORED[char] : char;
     }
 }

@@ -31,11 +31,10 @@ class Enemy extends MovingObject {
         // Set in game.js - decides when the enemy is in combat.
         this.rubberBand = null;
 
-        // Drawn sword, or null when not out. Set by drawEnemySword()
-        // in game.js, cleared by EnemySword.sheathe(). The enemy won't
-        // draw again until swordCooldown (ms) has run down to 0.
+        // Drawn sword (see Sword.js), or null when not out. Set by
+        // armEnemy() in game.js - right at the start and after every
+        // encounter.
         this.sword = null;
-        this.swordCooldown = 0;
 
         // Flips to false once knocked into the environment/border
         // - see vanishEnemy() in game.js.
@@ -48,6 +47,12 @@ class Enemy extends MovingObject {
     }
 
 
+    // Like player.facing - the side its sword is held on.
+    get facing() {
+        return this.direction < 0 ? "left" : "right";
+    }
+
+
     inCombat() {
         return this.rubberBand !== null && this.rubberBand.engaged();
     }
@@ -57,8 +62,6 @@ class Enemy extends MovingObject {
     // alone moves the enemy; it just keeps facing the target.
     // Otherwise: faster than patrolling, it brakes; else it patrols.
     update(dt) {
-
-        this.swordCooldown = Math.max(0, this.swordCooldown - dt);
 
         if (this.inCombat()) {
             this.direction = this.rubberBand.towardOther(this) || this.direction;

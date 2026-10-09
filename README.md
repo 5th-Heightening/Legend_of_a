@@ -25,13 +25,12 @@ by `SplashScreen.js`/`SpeechBubble.js` before this split:
 | [MovingObject.js](MovingObject.js) | Base class for everything that moves (`Player`, `Enemy`): position + a `Mover`. |
 | [MovementSystem.js](MovementSystem.js) | Moves every registered `MovingObject` once per tick, one cell at a time, against per-object rules. |
 | [RubberBand.js](RubberBand.js) | Combat pull: player and enemy accelerate toward each other while in combat — see "Rubber band" below. |
-| [ContactPredictor.js](ContactPredictor.js) | Predicts when two fighters will touch, for the enemy's sword timing — see "Enemy" below. |
 | [Player.js](Player.js) | Player state (`extends MovingObject`): facing and `sword`/`shield` weapon references. |
 | [PlayerController.js](PlayerController.js) | Arrow-key input → player steps / braking / combat impulses, sampled once per tick. |
-| [Sword.js](Sword.js), [Shield.js](Shield.js) | Combat visuals, both take a `player` reference in their constructor. |
+| [Sword.js](Sword.js) | A fighter's sword (player's and enemy's), held above or below its owner — see "Combat" below. |
+| [Shield.js](Shield.js) | The player's shield, takes a `player` reference in its constructor. |
 | [Ground.js](Ground.js) | Background floor plane. |
 | [Enemy.js](Enemy.js) | Patrolling/combat enemy (`extends MovingObject`). |
-| [EnemySword.js](EnemySword.js) | The enemy's `-` sword, glued to the enemy — see "Enemy" below. |
 | [DeathJump.js](DeathJump.js) | Death feedback: a dying character's copy jumps up and falls out of the play area — see "Push" below. |
 | [Particle.js](Particle.js) | Short-lived drifting particle that decays through a random character sequence — see "Particles" below. |
 | [Squiggle.js](Squiggle.js) | Decorative random-letter string grown from the player while `D` is held — see "Squiggle" below. |
@@ -56,8 +55,8 @@ fails at the first `new` call, not at parse time:
    specifically, since `class Tree extends ParallaxObject` needs
    `ParallaxObject` to already exist.
 3. `Mover.js`, `MovingObject.js`, `MovementSystem.js`,
-   `RubberBand.js`, `ContactPredictor.js`, then `Player.js`, `PlayerController.js`, `Sword.js`, `Shield.js`,
-   `Ground.js`, `Enemy.js`, `EnemySword.js`, `Squiggle.js`,
+   `RubberBand.js`, then `Player.js`, `PlayerController.js`, `Sword.js`, `Shield.js`,
+   `Ground.js`, `Enemy.js`, `Squiggle.js`,
    `BlinkingText.js`, `SplashScreen.js`. `MovingObject.js` must come
    before `Player.js`/`Enemy.js` (they `extends MovingObject`).
    `Mover.js` only needs to exist by the time something is
@@ -138,8 +137,7 @@ There is exactly one clock in the game: `loop`, a `GameLoop`
 ([GameLoop.js](GameLoop.js)) that calls `tick(dt)` in
 [game.js](game.js) every `TICK_INTERVAL` (40ms). `dt` is always that
 fixed interval, never the measured real time, so every duration in
-the game (walk speed, sword swing, enemy sword window, push recovery,
-particle ageing) is counted in the same ticks, and the same situation
+the game (walk speed, push recovery, particle ageing) is counted in the same ticks, and the same situation
 always plays out the same way. There are no other `setInterval`/
 `setTimeout` calls anywhere. Anything timed keeps its own `elapsed`
 counter and advances it in `update(dt)`.
@@ -152,20 +150,20 @@ One tick, in this order:
    "Push").
 2. **Objects** — `world.update(dt)`: every object in the `World`
    ([World.js](World.js)) that has an `update(dt)` method runs it —
-   enemy AI, sword/enemy-sword timers, particles, squiggle, title
+   enemy AI, particles, squiggle, title
    blink. Any object that sets `alive = false` is removed from the
    world *and* the renderer right there.
 3. **Rubber band** — `rubberBand.update(dt)` pulls player and enemy
    toward each other while they're in combat (see "Rubber band").
 4. **Movement** — `movement.update(dt)` moves every `MovingObject`
    (see "Movement" below).
-5. **Combat** — `updateEnemySword()`, then `checkEnemyEncounter()`,
-   once, after everything has moved.
+5. **Combat** — `checkEnemyEncounter()`, once, after everything has
+   moved.
 6. **Draw** — `renderer.render()`, the only render call in the game.
 
 Key handlers never move or render anything themselves. Arrow keys are
 only recorded (the controller acts on them on the next tick), and
-`W`/`A`/`D` create their objects right away, but those are drawn and
+`W`/`S`/`A`/`D` create their objects right away, but those are drawn and
 checked from the next tick on. Input is therefore at most one tick
 (40ms) late, and always on the beat.
 
@@ -297,31 +295,29 @@ where the push came from.
 
 ## Combat: sword and shield
 
-Both live one tile out from the player, on whichever side
-`player.facing` currently points, and neither is affected by movement
-collision (`wouldCollideAt` only checks `parallaxObjects`) or by
-parallax — they're relative to the player, not scenery. Both are also
-glued to the player via getters rather than a captured position, and
-both are referenced from `player.sword`/`player.shield` (set/cleared
-by `swingSword()`/`showShield()`/`hideShield()` in `game.js`, which
+Neither is affected by movement collision (`wouldCollideAt` only
+checks `parallaxObjects`) or by parallax — they're relative to the
+player, not scenery. Both are glued to the player via getters rather
+than a captured position, and both are referenced from
+`player.sword`/`player.shield` (set/cleared by `drawSword()`/
+`sheatheSword()`/`showShield()`/`hideShield()` in `game.js`, which
 also add/remove them from the renderer) rather than module-level
 variables — "which weapon is out" is state that belongs to the
 character.
 
-- **`Sword`** (`W`, in the `keydown` handler's `swingSword()`) is a
-  one-shot, tick-driven animation: on press it's added to the world;
-  its `update(dt)` flips `frame` from `"slash"` to `"dash"` once it has
-  been out for `SWORD_FRAME_DURATION` (120ms = 3 ticks), and after
-  another 120ms it sets `alive = false` and clears `player.sword`
-  itself, so the world drops it. `player.sword` doubles as a
-  re-entrancy guard — `swingSword()` no-ops while it's non-null — and
-  the `keydown` handler also checks `!event.repeat`, so holding `W`
-  down triggers exactly one swing per physical press, not continuous
-  OS key-repeat swings. Like `Shield`, its `x`/`y` and (while still in
-  the `"slash"` frame) its `"/"`/`"\"` character are getters reading
-  `player.x`/`player.y`/`player.facing` live, so a swing that outlasts
-  a move — or a facing change — stays glued to the player instead of
-  hanging in the air at wherever the swing started.
+- **`Sword`** ([Sword.js](Sword.js), `z = 25`) is held one cell in
+  front of its owner (along `facing`), in one of `Sword.STANCES`:
+  **above** (`W`, on the row above) or **below** (`S`, on the row
+  below). The char is a diagonal pointing away from the owner: facing
+  right, above is `"/"` and below `"\"`; facing left, they're
+  mirrored (`Sword.MIRRORED`). No swing, no warm up, no
+  cool down: `drawSword(stance)` puts it out at once, and pressing the
+  other key while it's out just switches `sword.stance`. It stays out
+  until the next encounter, which puts it away (`sheatheSword()`);
+  then the player has to press `W`/`S` again. The same class is the
+  enemy's sword (see "Enemy"; `enemy.facing` follows its
+  `direction`). It isn't on its owner's row, so it adds no reach — it
+  only decides the outcome of an encounter (see "Push").
 - **`Shield`** (`A`, held) is the opposite: no timer, glued to the
   player for as long as the key is down. Its `x`/`y`/`getAscii()` are
   getters reading `player.x`/`player.y`/`player.facing` live, so it
@@ -362,37 +358,11 @@ environment. That also removes it from the world and the movement
 system, so a vanished enemy is inert even though the `enemy` reference
 itself is never reassigned/replaced.
 
-**Enemy sword:** the enemy times its attack. Each tick,
-`updateEnemySword()` (in [game.js](game.js)) asks
-`contactPredictor.timeToContact()` ([ContactPredictor.js](ContactPredictor.js))
-how many ms until its sword tip (`ENEMY_SWORD_REACH`, 1 cell) would
-touch the player (body, plus 1 cell if a sword/shield is out toward
-the enemy, `playerReach()`). The predictor copies both fighters'
-cell, half-crossed cell and speed and runs the rubber band's pull
-(`RubberBand.pulledVelocity()`) and the `Mover`'s cell stepping
-forward tick by tick, up to `ContactPredictor.LOOKAHEAD` (3s) — the
-same math as the game, so the prediction holds as long as nobody
-presses a key or hits anything.
-
-The enemy starts an `EnemySword` (`z = 25`) once that time is between
-`ENEMY_SWORD_WINDUP` and `ENEMY_SWORD_WINDUP + ENEMY_SWORD_LEAD`
-(80ms), so the strike comes out just before contact. Not while the
-predicted contact is too far off, already too close to wind up, or
-`enemy.swordCooldown` hasn't run down to 0. The sword has two phases:
-
-1. **Windup** (`ENEMY_SWORD_WINDUP`, 200ms): the enemy lifts it, a
-   `"|"` at `EnemySword.WINDUP_DX`/`WINDUP_DY` from the enemy
-   (default: directly above it). A warning only, it doesn't touch or
-   hit anything.
-2. **Strike** (`ENEMY_SWORD_DURATION`, 700ms): a `"-"` one tile in
-   front of the enemy along `direction`. Only now is
-   `enemy.sword.drawn` true, and only then does it count in combat.
-
-After the strike, `sheathe()` clears `enemy.sword` and sets
-`enemy.swordCooldown` to `ENEMY_SWORD_COOLDOWN` (800ms), counted down
-in `Enemy.update()`. `enemy.sword` is the current sword (in either
-phase) or `null`, mirroring `player.sword`. Whether it's drawn at the
-moment of impact changes the collision outcome (see "Push" below).
+**Enemy sword:** the enemy always has a `Sword` out (see "Combat"),
+in a stance picked at random (`Sword.randomStance()`). `armEnemy()`
+(in [game.js](game.js)) draws it when the game starts and again right
+after every encounter, in a new random stance — no warm up, no cool
+down. `enemy.sword` mirrors `player.sword`.
 
 The enemy isn't in `parallaxObjects` (it has no corners, its position
 isn't a function of the player) and isn't checked in `wouldCollideAt`.
@@ -419,14 +389,15 @@ from the other side):
 | Player | Enemy | Player result | Enemy result |
 |---|---|---|---|
 | shield up (reflector) | any | 0 (stands firm) | closing speed |
-| sword drawn | sword drawn (reflection) | own speed × -1 | own speed × -1 |
-| sword drawn | unarmed | 0 | closing speed |
-| bare-handed | sword drawn | closing speed + `SWORD_IMPULSE` | 0 |
-| bare-handed | unarmed | enemy's speed | player's speed (plain exchange) |
+| sword, same stance | sword | 0 (stands firm) | closing speed |
+| sword in the other stance, or none | sword | closing speed + `SWORD_IMPULSE` | 0 |
+| any | unarmed | enemy's speed | player's speed (plain exchange) |
 
 `SWORD_IMPULSE` (6 cells/s, in [game.js](game.js)) is the force the
 enemy's sword adds to the player when it hits. The player's sword
-adds nothing.
+adds nothing. After every encounter both swords are put away; the
+enemy draws a new one at once (so "unarmed" never actually happens),
+the player with `W`/`S`.
 
 On top of the table, everyone who bounces off (result > 0) gets
 `ENCOUNTER_PUSH` (1 cell/s) extra; whoever stands firm keeps 0. The
@@ -439,14 +410,12 @@ blocking takes priority over attacking.
 
 **Contact:** an encounter happens when the two sides *touch*, not
 when they overlap. Each side is a list of parts (`combatParts()`):
-the player's body plus its sword and shield if out, and the enemy's
-body plus its sword if out. `findContact()` looks for a player part
-and an enemy part on the same row, at most `CONTACT_DISTANCE` (1)
-cells apart, i.e. on adjacent cells. So reach matters. With a sword
-out, the player hits an enemy two cells away. If both have their
-swords out and facing each other, the blades touch with the bodies
-three cells apart. The collision particles burst at the player's
-touching part (sword tip, shield or body).
+the player's body plus its shield if up, and the enemy's body. Swords
+don't count — they're held on the rows above/below. `findContact()`
+looks for a player part and an enemy part on the same row, at most
+`CONTACT_DISTANCE` (1) cells apart, i.e. on adjacent cells. With the
+shield up, the player touches an enemy two cells away. The collision
+particles burst at the player's touching part (shield or body).
 
 **Directions:** bodies never share a cell, so `enemySide` (-1/1,
 which side of the player the enemy is on) comes straight from the
@@ -456,17 +425,16 @@ decides everything directional:
 
 - the player is pushed away from `enemySide`, the enemy toward it
   (i.e. away from the player);
-- the player's shield/sword only count if `player.facing` points
-  toward `enemySide`, and the enemy's sword only counts if
-  `enemy.direction` points toward the player — a weapon facing away
-  is treated as not drawn.
+- the player's shield only counts if `player.facing` points toward
+  `enemySide` — a shield on the back is treated as not up. Swords
+  don't face anywhere, only their stance counts.
 
 - `checkEnemyEncounter()` runs once per tick, after all movement, and
   only fires when both are alive, touching, and **closing in**
   (closing speed > 0). Right after an encounter they move apart, so
   staying in contact doesn't keep re-triggering it. Standing pressed
   together (a clinch), the pull closes in by a tiny amount every tick
-  and the bodies just exchange that — until a sword comes out.
+  and the swords decide who bounces off.
 - Running into the border/scenery fast enough kills, see "Movement".
   `vanishEnemy()` (and `killPlayer()`) call `playDeathJump()`: a
   `DeathJump` (`z = 30`, same character as the dead one) starts at
