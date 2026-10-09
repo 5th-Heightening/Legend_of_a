@@ -102,6 +102,10 @@ const rubberBand = new RubberBand(player, enemy);
 playerController.rubberBand = rubberBand;
 enemy.rubberBand = rubberBand;
 
+// The "!" over one fighter's head - see Initiative.js and
+// checkEnemyEncounter(). The player starts with it.
+const initiative = new Initiative(enemy, player);
+
 const tree = new Tree({
     topLeft: { x: 3, y: 3 },
     topRight: { x: 30, y: 3 },
@@ -334,6 +338,7 @@ function startGame() {
     world.add(tree);
     world.add(enemy);
     world.add(player);
+    world.add(initiative);
 
     registerMovement();
     updateParallax();
@@ -436,15 +441,19 @@ function armEnemy() {
 // Each side's speed toward the other at the moment of contact adds
 // up to the closing speed. Decided by both sides' weapons:
 // - shield up: a reflector - the player stands firm (speed 0), the
-//   enemy bounces off with the whole closing speed
-// - player's sword in the same stance as the enemy's: same as the
-//   shield - the enemy bounces off
-// - otherwise, with the enemy's sword out (different stance, or the
-//   player has none): the enemy stands firm, the player bounces off
-//   with the closing speed plus SWORD_IMPULSE
+//   enemy bounces off with the whole closing speed. The initiative
+//   stays where it is.
+// - both swords in the same stance: a reflection - each side keeps
+//   its own speed, turned around (multiplied by -1) - and the
+//   initiative swaps over to the other fighter
+// - both swords in different stances: whoever doesn't have the
+//   initiative bounces off, the other stands firm
+// - only the enemy's sword out: the enemy stands firm, the player
+//   bounces off
 // - enemy unarmed: the bodies just exchange their speeds
-// Shield wins if both shield and sword are out at once (blocking
-// takes priority over attacking).
+// The player bounces off with the closing speed plus SWORD_IMPULSE,
+// the enemy with the closing speed alone. Shield wins if both shield
+// and sword are out at once (blocking takes priority over attacking).
 //
 // Every encounter puts both swords away; the enemy draws a new one
 // right away (see armEnemy()), the player with W/S.
@@ -598,19 +607,41 @@ function checkEnemyEncounter() {
     spawnParticles(contact.a.x, contact.a.y, COLLISION_PARTICLE_COUNT);
 
     const shield = player.shield && playerFacing === enemySide;
-    const sameStance = player.sword && enemy.sword && player.sword.stance === enemy.sword.stance;
+    const bothSwords = player.sword && enemy.sword;
+    const sameStance = bothSwords && player.sword.stance === enemy.sword.stance;
 
     // New speeds away from the other side.
     let playerAway;
     let enemyAway;
 
-    if (shield || sameStance) {
+    // Who bounces off - the other one stands firm. Stays null when
+    // both are reflected, or the bodies just exchange their speeds.
+    let loser = null;
+
+    if (shield) {
+        loser = enemy;
+    }
+    else if (sameStance) {
+        initiative.swap();
+    }
+    else if (bothSwords) {
+        loser = initiative.has(player) ? enemy : player;
+    }
+    else if (enemy.sword) {
+        loser = player;
+    }
+
+    if (loser === enemy) {
         playerAway = 0;
         enemyAway = closing;
     }
-    else if (enemy.sword) {
+    else if (loser === player) {
         playerAway = closing + SWORD_IMPULSE;
         enemyAway = 0;
+    }
+    else if (sameStance) {
+        playerAway = playerApproach;
+        enemyAway = enemyApproach;
     }
     else {
         playerAway = enemyApproach;

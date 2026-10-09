@@ -29,6 +29,7 @@ by `SplashScreen.js`/`SpeechBubble.js` before this split:
 | [PlayerController.js](PlayerController.js) | Arrow-key input → player steps / braking / combat impulses, sampled once per tick. |
 | [Sword.js](Sword.js) | A fighter's sword (player's and enemy's), held above or below its owner — see "Combat" below. |
 | [Shield.js](Shield.js) | The player's shield, takes a `player` reference in its constructor. |
+| [Initiative.js](Initiative.js) | Which fighter has the initiative, shown as a `!` above its head — see "Push" below. |
 | [Ground.js](Ground.js) | Background floor plane. |
 | [Enemy.js](Enemy.js) | Patrolling/combat enemy (`extends MovingObject`). |
 | [DeathJump.js](DeathJump.js) | Death feedback: a dying character's copy jumps up and falls out of the play area — see "Push" below. |
@@ -56,7 +57,7 @@ fails at the first `new` call, not at parse time:
    `ParallaxObject` to already exist.
 3. `Mover.js`, `MovingObject.js`, `MovementSystem.js`,
    `RubberBand.js`, then `Player.js`, `PlayerController.js`, `Sword.js`, `Shield.js`,
-   `Ground.js`, `Enemy.js`, `Squiggle.js`,
+   `Initiative.js`, `Ground.js`, `Enemy.js`, `Squiggle.js`,
    `BlinkingText.js`, `SplashScreen.js`. `MovingObject.js` must come
    before `Player.js`/`Enemy.js` (they `extends MovingObject`).
    `Mover.js` only needs to exist by the time something is
@@ -389,9 +390,17 @@ from the other side):
 | Player | Enemy | Player result | Enemy result |
 |---|---|---|---|
 | shield up (reflector) | any | 0 (stands firm) | closing speed |
-| sword, same stance | sword | 0 (stands firm) | closing speed |
-| sword in the other stance, or none | sword | closing speed + `SWORD_IMPULSE` | 0 |
+| sword, same stance (reflection, initiative swaps) | sword | own speed × -1 | own speed × -1 |
+| sword, other stance | sword | whoever lacks the initiative: closing speed (+ `SWORD_IMPULSE` for the player); the other: 0 | |
+| no sword | sword | closing speed + `SWORD_IMPULSE` | 0 |
 | any | unarmed | enemy's speed | player's speed (plain exchange) |
+
+**Initiative** ([Initiative.js](Initiative.js), `z = 24`): exactly one
+fighter holds it, shown as `Initiative.MARK` (`"!"`) above its head
+(`MARK_DX`/`MARK_DY`), glued to it via getters and hidden once it's
+dead. The player starts with it. It only changes on a same-stance
+encounter (`initiative.swap()`); the shield and every other case leave
+it where it is.
 
 `SWORD_IMPULSE` (6 cells/s, in [game.js](game.js)) is the force the
 enemy's sword adds to the player when it hits. The player's sword
