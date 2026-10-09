@@ -38,7 +38,7 @@ const movement = new MovementSystem();
 // The order of one tick:
 // 1. input - the arrow keys pressed/held since the last tick
 // 2. objects - enemy AI, particles, ...
-// 3. rubber band - player and enemy pull on each other in combat
+// 3. enemy stance mirror, rubber band - player and enemy pull on each other in combat
 // 4. movement - everything that moves, one cell at a time
 // 5. combat - player/enemy encounter
 // 6. draw
@@ -51,6 +51,7 @@ function tick(dt) {
     world.update(dt);
 
     if (gameStarted) {
+        enemyMirror.update(dt);
         rubberBand.update(dt);
         movement.update(dt);
         checkEnemyEncounter();
@@ -103,7 +104,8 @@ playerController.rubberBand = rubberBand;
 enemy.rubberBand = rubberBand;
 
 // The "!" over one fighter's head - see Initiative.js and
-// checkEnemyEncounter(). The player starts with it.
+// checkEnemyEncounter(). The enemy starts with it (a better
+// challenge).
 const initiative = new Initiative(enemy, player);
 
 const tree = new Tree({
@@ -361,6 +363,12 @@ function drawSword(stance) {
         return;
     }
 
+    // Without the initiative, the enemy answers with the same stance
+    // - see StanceMirror.js.
+    if (enemy.alive && !initiative.has(enemy)) {
+        enemyMirror.copy(stance);
+    }
+
     if (player.sword) {
         player.sword.stance = stance;
         return;
@@ -409,11 +417,15 @@ function hideShield() {
 // ==================================================
 // Combat: enemy sword
 //
-// The enemy always has its sword out, in a stance picked at random
-// (see Sword.randomStance()). Every encounter puts it away, and the
-// enemy draws it again right away in a new random stance - no warm
-// up, no cool down.
+// Every encounter puts the enemy's sword away. With the initiative,
+// the enemy draws it again right away in a new random stance (see
+// Sword.randomStance()) - no warm up, no cool down. Without it, the
+// enemy stays unarmed and copies the player's stance
+// StanceMirror.DELAY after the player picks one (see drawSword()).
 // ==================================================
+
+const enemyMirror = new StanceMirror(stance => drawEnemySword(stance));
+
 
 function armEnemy() {
 
@@ -422,8 +434,26 @@ function armEnemy() {
     }
 
     sheatheSword(enemy);
+    enemyMirror.cancel();
 
-    enemy.sword = new Sword(enemy, Sword.randomStance());
+    if (initiative.has(enemy)) {
+        drawEnemySword(Sword.randomStance());
+    }
+}
+
+
+function drawEnemySword(stance) {
+
+    if (!enemy.alive) {
+        return;
+    }
+
+    if (enemy.sword) {
+        enemy.sword.stance = stance;
+        return;
+    }
+
+    enemy.sword = new Sword(enemy, stance);
     world.add(enemy.sword);
 }
 
@@ -448,17 +478,16 @@ function armEnemy() {
 //   initiative swaps over to the other fighter
 // - both swords in different stances: whoever doesn't have the
 //   initiative bounces off, the other stands firm
-// - only the enemy's sword out: the enemy stands firm, the player
-//   bounces off
-// - enemy unarmed: the bodies just exchange their speeds
-// - only one sword out and no shield drawn: that sword's owner gets
-//   the initiative (on top of the rules above)
+// - only one sword out: its owner gets the initiative and stands
+//   firm, the other one bounces off
+// - no sword and no shield: the bodies just exchange their speeds
 // The player bounces off with the closing speed plus SWORD_IMPULSE,
 // the enemy with the closing speed alone. Shield wins if both shield
 // and sword are out at once (blocking takes priority over attacking).
 //
 // Every encounter puts both swords away; the enemy draws a new one
-// right away (see armEnemy()), the player with W/S.
+// right away if it holds the initiative, otherwise it copies the
+// player's stance (see armEnemy()); the player draws with W/S.
 // ==================================================
 
 // Cells per second the enemy's sword adds to the player's speed when
@@ -496,6 +525,7 @@ function vanishEnemy() {
     enemy.mover.stop();
 
     sheatheSword(enemy);
+    enemyMirror.cancel();
 
     world.remove(enemy);
     movement.remove(enemy);
@@ -515,6 +545,7 @@ function killPlayer() {
     sheatheSword(player);
     hideShield();
     stopSquiggle();
+    enemyMirror.cancel();
 
     world.remove(player);
     movement.remove(player);
@@ -620,12 +651,6 @@ function checkEnemyEncounter() {
     // both are reflected, or the bodies just exchange their speeds.
     let loser = null;
 
-    // Only one sword out and no shield drawn: the initiative goes to
-    // whoever has the sword.
-    if (!player.shield && Boolean(player.sword) !== Boolean(enemy.sword)) {
-        initiative.give(player.sword ? player : enemy);
-    }
-
     if (shield) {
         loser = enemy;
     }
@@ -635,8 +660,10 @@ function checkEnemyEncounter() {
     else if (bothSwords) {
         loser = initiative.has(player) ? enemy : player;
     }
-    else if (enemy.sword) {
-        loser = player;
+    else if (player.sword || enemy.sword) {
+        const armed = player.sword ? player : enemy;
+        initiative.give(armed);
+        loser = armed === player ? enemy : player;
     }
 
     if (loser === enemy) {

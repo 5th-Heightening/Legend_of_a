@@ -30,6 +30,7 @@ by `SplashScreen.js`/`SpeechBubble.js` before this split:
 | [Sword.js](Sword.js) | A fighter's sword (player's and enemy's), held above or below its owner — see "Combat" below. |
 | [Shield.js](Shield.js) | The player's shield, takes a `player` reference in its constructor. |
 | [Initiative.js](Initiative.js) | Which fighter has the initiative, shown as a `!` above its head — see "Push" below. |
+| [StanceMirror.js](StanceMirror.js) | Delayed copy of the player's stance for the enemy without the initiative — see "Enemy sword" below. |
 | [Ground.js](Ground.js) | Background floor plane. |
 | [Enemy.js](Enemy.js) | Patrolling/combat enemy (`extends MovingObject`). |
 | [DeathJump.js](DeathJump.js) | Death feedback: a dying character's copy jumps up and falls out of the play area — see "Push" below. |
@@ -57,7 +58,7 @@ fails at the first `new` call, not at parse time:
    `ParallaxObject` to already exist.
 3. `Mover.js`, `MovingObject.js`, `MovementSystem.js`,
    `RubberBand.js`, then `Player.js`, `PlayerController.js`, `Sword.js`, `Shield.js`,
-   `Initiative.js`, `Ground.js`, `Enemy.js`, `Squiggle.js`,
+   `Initiative.js`, `StanceMirror.js`, `Ground.js`, `Enemy.js`, `Squiggle.js`,
    `BlinkingText.js`, `SplashScreen.js`. `MovingObject.js` must come
    before `Player.js`/`Enemy.js` (they `extends MovingObject`).
    `Mover.js` only needs to exist by the time something is
@@ -359,11 +360,15 @@ environment. That also removes it from the world and the movement
 system, so a vanished enemy is inert even though the `enemy` reference
 itself is never reassigned/replaced.
 
-**Enemy sword:** the enemy always has a `Sword` out (see "Combat"),
-in a stance picked at random (`Sword.randomStance()`). `armEnemy()`
-(in [game.js](game.js)) draws it when the game starts and again right
-after every encounter, in a new random stance — no warm up, no cool
-down. `enemy.sword` mirrors `player.sword`.
+**Enemy sword:** `armEnemy()` (in [game.js](game.js)) runs when the
+game starts and after every encounter. If the enemy holds the
+initiative, it draws a `Sword` (see "Combat") right away in a stance
+picked at random (`Sword.randomStance()`) — no warm up, no cool down.
+Without the initiative it stays unarmed; each time the player picks a
+stance (`W`/`S`), the enemy takes the same stance
+`StanceMirror.DELAY` (1000 ms) later ([StanceMirror.js](StanceMirror.js),
+counted in ticks; a new stance before then restarts the delay, an
+encounter or death cancels it). `enemy.sword` mirrors `player.sword`.
 
 The enemy isn't in `parallaxObjects` (it has no corners, its position
 isn't a function of the player) and isn't checked in `wouldCollideAt`.
@@ -392,23 +397,25 @@ from the other side):
 | shield up (reflector) | any | 0 (stands firm) | closing speed |
 | sword, same stance (reflection, initiative swaps) | sword | own speed × -1 | own speed × -1 |
 | sword, other stance | sword | whoever lacks the initiative: closing speed (+ `SWORD_IMPULSE` for the player); the other: 0 | |
-| no sword | sword | closing speed + `SWORD_IMPULSE` | 0 |
-| any | unarmed | enemy's speed | player's speed (plain exchange) |
+| no sword | sword (initiative goes to the enemy) | closing speed + `SWORD_IMPULSE` | 0 |
+| sword | no sword (initiative goes to the player) | 0 | closing speed |
+| no sword | no sword | enemy's speed | player's speed (plain exchange) |
 
 **Initiative** ([Initiative.js](Initiative.js), `z = 24`): exactly one
 fighter holds it, shown as `Initiative.MARK` (`"!"`) above its head
 (`MARK_DX`/`MARK_DY`), glued to it via getters and hidden once it's
 dead. The enemy starts with it (a better challenge). It changes on a same-stance
 encounter (`initiative.swap()`), and on an encounter where only one
-fighter has its sword out and the player's shield isn't drawn - then
-it goes to the sword's owner (`initiative.give()`). The shield and
-every other case leave it where it is.
+fighter has its sword out (and no shield faces the enemy) - then it
+goes to the sword's owner (`initiative.give()`). The shield and every
+other case leave it where it is.
 
 `SWORD_IMPULSE` (6 cells/s, in [game.js](game.js)) is the force the
 enemy's sword adds to the player when it hits. The player's sword
 adds nothing. After every encounter both swords are put away; the
-enemy draws a new one at once (so "unarmed" never actually happens),
-the player with `W`/`S`.
+enemy draws a new one at once if it holds the initiative, otherwise
+it copies the player's stance (see "Enemy sword"); the player draws
+with `W`/`S`.
 
 On top of the table, everyone who bounces off (result > 0) gets
 `ENCOUNTER_PUSH` (1 cell/s) extra; whoever stands firm keeps 0. The
