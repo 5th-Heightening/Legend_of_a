@@ -1,13 +1,11 @@
-// The set up before the player's sword is out: a CHAR straight above
-// the owner for the "above" stance, straight below it for "below".
-// Glued to the owner via getters, like Sword. After DURATION ms
-// (counted in game ticks via update()) it expires and hands its
-// stance to onDone, which draws the actual sword (see drawSword() in
-// game.js). The stance can still be changed while it runs; the time
-// left stays the same.
-//
-// Drawn above Initiative (higher z), so it covers the "!" while it's
-// shown.
+// The set up before the player's above/below attack is taken: a CHAR
+// straight above the owner for "above", straight below it for
+// "below". Glued to the owner via getters, like Stance. After
+// DURATION ms (counted in game ticks via update()) it expires and
+// hands its direction (`stance`) to onDone, which takes the actual
+// attack stance (see drawSword() in game.js). The direction can still
+// be changed while it runs; the time left stays the same. It already
+// counts as the attack in a collision.
 class SwordWindup {
 
     static DURATION = 125;

@@ -7,14 +7,12 @@ class Player extends MovingObject {
         // moving vertically or standing still.
         this.facing = "right";
 
-        // Currently-equipped weapons, or null when not out. Set/
-        // cleared by drawSword()/sheatheSword()/showShield()/
-        // hideShield() in game.js.
-        this.sword = null;
-        this.shield = null;
+        // Current attack or block (see Stance.js), or null. Set/
+        // cleared by setStance()/clearStance() in game.js.
+        this.stance = null;
 
-        // Set up before the sword is out (see SwordWindup.js), or
-        // null.
+        // Set up before an above/below attack is taken (see
+        // SwordWindup.js), or null.
         this.windup = null;
 
         // Decorative letter string while "D" is held, or null - see

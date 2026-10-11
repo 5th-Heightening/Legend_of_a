@@ -31,10 +31,9 @@ class Enemy extends MovingObject {
         // Set in game.js - decides when the enemy is in combat.
         this.rubberBand = null;
 
-        // Drawn sword (see Sword.js), or null when not out. Set by
-        // armEnemy() in game.js - right at the start and after every
-        // encounter.
-        this.sword = null;
+        // Current attack or block (see Stance.js), or null. Picked by
+        // EnemyTactics.js, set via setStance() in game.js.
+        this.stance = null;
 
         // Flips to false once knocked into the environment/border
         // - see vanishEnemy() in game.js.
@@ -47,7 +46,7 @@ class Enemy extends MovingObject {
     }
 
 
-    // Like player.facing - the side its sword is held on.
+    // Like player.facing - the side its stance is held on.
     get facing() {
         return this.direction < 0 ? "left" : "right";
     }

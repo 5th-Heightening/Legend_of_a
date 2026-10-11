@@ -38,10 +38,10 @@ const movement = new MovementSystem();
 // The order of one tick:
 // 1. input - the arrow keys pressed/held since the last tick
 // 2. objects - enemy AI, particles, ...
-// 3. enemy stance mirror, rubber band - player and enemy pull on each other in combat
-//    (a player with the shield up is held in place right after)
+// 3. enemy tactics, rubber band - player and enemy pull on each other in combat
+//    (a fighter holding a block is held in place right after)
 // 4. movement - everything that moves, one cell at a time
-// 5. combat - unarmed enemy draws before contact, player/enemy encounter
+// 5. combat - player/enemy encounter
 // 6. draw
 function tick(dt) {
 
@@ -52,15 +52,11 @@ function tick(dt) {
     world.update(dt);
 
     if (gameStarted) {
-        enemyMirror.update(dt);
+        enemyTactics.update(dt);
         rubberBand.update(dt);
-
-        if (player.shield) {
-            player.mover.stop();
-        }
+        holdBlockers();
 
         movement.update(dt);
-        armEnemyBeforeContact();
         checkEnemyEncounter();
     }
 
@@ -109,11 +105,6 @@ const enemy = new Enemy(ENEMY_START_X, START_ROW, 5, 35, player);
 const rubberBand = new RubberBand(player, enemy);
 playerController.rubberBand = rubberBand;
 enemy.rubberBand = rubberBand;
-
-// The "!" over one fighter's head - see Initiative.js and
-// checkEnemyEncounter(). The enemy starts with it (a better
-// challenge).
-const initiative = new Initiative(enemy, player);
 
 const tree = new Tree({
     topLeft: { x: 3, y: 3 },
@@ -347,59 +338,101 @@ function startGame() {
     world.add(tree);
     world.add(enemy);
     world.add(player);
-    world.add(initiative);
 
     registerMovement();
     updateParallax();
-    armEnemy();
 }
 
 
 // ==================================================
-// Combat: sword stance (W above, S below) and shield (A)
+// Combat: stances - attacks and blocks (see Stance.js)
 //
-// A raises the shield for Shield.DURATION; releasing the key doesn't
-// lower it. While it's up the player stands still and can't move.
+// Each fighter holds at most one stance: an attack or a block, from
+// above, below or as a dash. Who wins a collision is decided by
+// Clash.js (see checkEnemyEncounter()); every collision deletes all
+// stances.
 //
-// The sword has no swing (see Sword.js). W/S first show a short set
-// up above/below the player (see SwordWindup.js); once that runs out
-// the sword is drawn, and it stays until the next encounter puts it
-// away. An encounter during the set up cancels it. With the sword
-// already out, W/S just switch the stance at once.
+// The player:
+// - W/S attack from above/below. A short set up runs first (see
+//   SwordWindup.js), then the attack stance is taken. It already
+//   counts during the set up. With an attack held, W/S switch its
+//   direction at once.
+// - a fresh arrow press toward the enemy (in combat) is a charge:
+//   the dash attack, plus an impulse (see PlayerController.js)
+// - holding the arrow away from the enemy (in combat) brakes; once
+//   stopped, the player takes the block - above/below while up/down
+//   is held, else dash. It lasts while the arrow is held; W/S do
+//   nothing meanwhile.
+//
+// The enemy picks its stances itself - see EnemyTactics.js.
+//
+// A fighter holding a block stands still: tick() stops it right
+// after the rubber band's pull.
 // ==================================================
 
-function drawSword(stance) {
+// Takes the stance `kind` from `direction` - an existing one of the
+// same kind just changes its direction.
+function setStance(fighter, kind, direction) {
 
-    if (!player.alive) {
+    if (fighter.alive === false) {
         return;
     }
 
-    // Without the initiative, the enemy answers with the same stance
-    // - see StanceMirror.js.
-    if (enemy.alive && !initiative.has(enemy)) {
-        enemyMirror.copy(stance);
+    if (fighter.stance && fighter.stance.kind === kind) {
+        fighter.stance.direction = direction;
+        return;
     }
 
-    if (player.sword) {
-        player.sword.stance = stance;
+    clearStance(fighter);
+
+    fighter.stance = new Stance(fighter, kind, direction);
+    world.add(fighter.stance);
+}
+
+
+function clearStance(fighter) {
+
+    if (!fighter.stance) {
+        return;
+    }
+
+    world.remove(fighter.stance);
+    fighter.stance = null;
+}
+
+
+function isBlocking(fighter) {
+    return fighter.stance !== null && fighter.stance.kind === Stance.BLOCK;
+}
+
+
+// W/S: an above/below attack, after the set up.
+function drawSword(direction) {
+
+    if (!player.alive || playerController.bracing) {
+        return;
+    }
+
+    if (player.stance && player.stance.kind === Stance.ATTACK) {
+        player.stance.direction = direction;
         return;
     }
 
     if (player.windup) {
-        player.windup.stance = stance;
+        player.windup.stance = direction;
         return;
     }
 
-    player.windup = new SwordWindup(player, stance, readyStance => {
+    player.windup = new SwordWindup(player, direction, readyDirection => {
         player.windup = null;
-        player.sword = new Sword(player, readyStance);
-        world.add(player.sword);
+        setStance(player, Stance.ATTACK, readyDirection);
     });
+
     world.add(player.windup);
 }
 
 
-// Drops the player's sword set up, if one is running.
+// Drops the player's attack set up, if one is running.
 function cancelWindup() {
 
     if (!player.windup) {
@@ -411,132 +444,74 @@ function cancelWindup() {
 }
 
 
-// Puts away the sword of a fighter (player or enemy), if it has one
-// out.
-function sheatheSword(fighter) {
+// The player's stance for a collision: the one held, or the attack
+// being set up (see SwordWindup.js) - as { kind, direction }, or null.
+function playerCombatStance() {
 
-    if (!fighter.sword) {
-        return;
+    if (player.stance) {
+        return player.stance;
     }
 
-    world.remove(fighter.sword);
-    fighter.sword = null;
+    if (player.windup) {
+        return { kind: Stance.ATTACK, direction: player.windup.stance };
+    }
+
+    return null;
 }
 
 
-// Raises the shield: the player stops at once and stays put until it
-// comes down - after Shield.DURATION, or at the next encounter (see
-// checkEnemyEncounter()).
-function showShield() {
+playerController.hooks = {
 
-    if (!player.alive || player.shield) {
-        return;
+    charge() {
+        cancelWindup();
+        setStance(player, Stance.ATTACK, "dash");
+    },
+
+    // Starts braking for a block - an attack is dropped.
+    brace() {
+        cancelWindup();
+
+        if (player.stance && player.stance.kind === Stance.ATTACK) {
+            clearStance(player);
+        }
+    },
+
+    block(direction) {
+        setStance(player, Stance.BLOCK, direction);
+    },
+
+    unblock() {
+        if (isBlocking(player)) {
+            clearStance(player);
+        }
     }
-
-    player.mover.stop();
-
-    player.shield = new Shield(player, () => {
-        player.shield = null;
-    });
-    world.add(player.shield);
-}
+};
 
 
-function hideShield() {
+const enemyTactics = new EnemyTactics(enemy, rubberBand, playerCombatStance, {
 
-    if (!player.shield) {
-        return;
+    attack(direction) {
+        setStance(enemy, Stance.ATTACK, direction);
+    },
+
+    block(direction) {
+        setStance(enemy, Stance.BLOCK, direction);
+    },
+
+    drop() {
+        clearStance(enemy);
     }
-
-    world.remove(player.shield);
-    player.shield = null;
-}
+});
 
 
-// ==================================================
-// Combat: enemy sword
-//
-// Every encounter puts the enemy's sword away. With the initiative,
-// the enemy draws it again right away in a new random stance (see
-// Sword.randomStance()) - no warm up, no cool down. Without it, the
-// enemy stays unarmed and copies the player's stance
-// StanceMirror.DELAY after the player picks one (see drawSword()).
-// If the player still has no sword (and isn't setting one up) when
-// the two are about to collide, the enemy draws a random stance
-// after all (see armEnemyBeforeContact()).
-// ==================================================
+// Called in tick() right after the rubber band: a fighter holding a
+// block doesn't move.
+function holdBlockers() {
 
-// How close (in cells, same row) the two have to get, while closing
-// in, for the unarmed enemy to draw against an unarmed player.
-const ENEMY_DRAW_DISTANCE = 3;
-
-const enemyMirror = new StanceMirror(stance => drawEnemySword(stance));
-
-
-function armEnemy() {
-
-    if (!enemy.alive) {
-        return;
-    }
-
-    sheatheSword(enemy);
-    enemyMirror.cancel();
-
-    if (initiative.has(enemy)) {
-        drawEnemySword(Sword.randomStance());
-    }
-}
-
-
-function drawEnemySword(stance) {
-
-    if (!enemy.alive) {
-        return;
-    }
-
-    if (enemy.sword) {
-        enemy.sword.stance = stance;
-        return;
-    }
-
-    enemy.sword = new Sword(enemy, stance);
-    world.add(enemy.sword);
-}
-
-
-// Checked once per tick, after movement: neither fighter has a
-// sword, they're on the same row at most ENEMY_DRAW_DISTANCE apart,
-// and they're closing in - either this tick's movement brought them
-// closer (the player walks in steps, without a speed) or their
-// speeds point toward each other. Then the enemy draws a random
-// stance. Flying apart after an encounter doesn't count.
-function armEnemyBeforeContact() {
-
-    if (!enemy.alive || !player.alive) {
-        return;
-    }
-
-    if (enemy.sword || player.sword || player.windup) {
-        return;
-    }
-
-    if (enemy.y !== player.y) {
-        return;
-    }
-
-    const distance = Math.abs(enemy.x - player.x);
-
-    if (distance > ENEMY_DRAW_DISTANCE) {
-        return;
-    }
-
-    const previousDistance = Math.abs(enemy.previousX - player.previousX);
-    const enemySide = Math.sign(enemy.x - player.x);
-    const closing = (player.velocityX - enemy.velocityX) * enemySide;
-
-    if (distance < previousDistance || closing > 0) {
-        enemyMirror.cancel();
-        drawEnemySword(Sword.randomStance());
+    for (const fighter of [player, enemy]) {
+        if (isBlocking(fighter)) {
+            fighter.mover.stop();
+        }
     }
 }
 
@@ -552,33 +527,23 @@ function armEnemyBeforeContact() {
 // PlayerController.js, Enemy.update()).
 //
 // Each side's speed toward the other at the moment of contact adds
-// up to the closing speed. Decided by both sides' weapons:
-// - shield up: a reflector - the player stands firm (speed 0), the
-//   enemy bounces off with the whole closing speed. The initiative
-//   stays where it is.
-// - both swords in the same stance: a reflection - each side keeps
-//   its own speed, turned around (multiplied by -1) - and the
-//   initiative swaps over to the other fighter
-// - both swords in different stances: whoever doesn't have the
-//   initiative bounces off, the other stands firm
-// - only one sword out: its owner gets the initiative and stands
-//   firm, the other one bounces off
-// - no sword and no shield: the bodies just exchange their speeds
-// The player's sword already counts while it's being set up (see
+// up to the closing speed. Both stances decide (see Clash.js) what
+// each side gets, as a speed away from the other:
+// - stands firm: 0
+// - pushed back: the closing speed, plus PLAYER_PUSH_IMPULSE /
+//   ENEMY_PUSH_IMPULSE
+// - reflected: its own speed, turned around (multiplied by -1)
+// The player's attack already counts while it's being set up (see
 // SwordWindup.js). With LOG_ENCOUNTERS on, every encounter is logged
 // to the console (see logEncounter()).
-// The player bounces off with the closing speed plus SWORD_IMPULSE,
-// the enemy with the closing speed alone. Shield wins if both shield
-// and sword are out at once (blocking takes priority over attacking).
 //
-// Every encounter puts both swords away; the enemy draws a new one
-// right away if it holds the initiative, otherwise it copies the
-// player's stance (see armEnemy()); the player draws with W/S.
+// Every encounter deletes both stances and the player's set up; the
+// enemy picks anew (see EnemyTactics.reset()).
 // ==================================================
 
-// Cells per second the enemy's sword adds to the player's speed when
-// it hits.
-const SWORD_IMPULSE = 6;
+// Cells per second added to a fighter's speed when it's pushed back.
+const PLAYER_PUSH_IMPULSE = 6;
+const ENEMY_PUSH_IMPULSE = 0;
 
 // Cells per second added to everyone who bounces off in an
 // encounter (anyone who stands firm keeps 0). Makes up for the speed
@@ -610,8 +575,7 @@ function vanishEnemy() {
     enemy.alive = false;
     enemy.mover.stop();
 
-    sheatheSword(enemy);
-    enemyMirror.cancel();
+    clearStance(enemy);
 
     world.remove(enemy);
     movement.remove(enemy);
@@ -628,11 +592,9 @@ function killPlayer() {
     player.alive = false;
     player.mover.stop();
 
-    sheatheSword(player);
+    clearStance(player);
     cancelWindup();
-    hideShield();
     stopSquiggle();
-    enemyMirror.cancel();
 
     world.remove(player);
     movement.remove(player);
@@ -656,11 +618,18 @@ function leavePushTrace(x, y) {
 const CONTACT_DISTANCE = 1;
 
 
-// The cells a side takes up in the fight: its body plus every
-// weapon it currently has out in front. Swords don't count - they're
-// held on the rows above/below and add no reach.
-function combatParts(body, ...weapons) {
-    return [body, ...weapons.filter(Boolean)];
+// The cells a side takes up in the fight: its body plus a dash
+// stance, which is held on its own row, in front (see Stance.js).
+// Above/below stances add no reach.
+function combatParts(fighter) {
+
+    const parts = [fighter];
+
+    if (fighter.stance && fighter.stance.inFront) {
+        parts.push(fighter.stance);
+    }
+
+    return parts;
 }
 
 
@@ -681,24 +650,20 @@ function findContact(partsA, partsB) {
 
 
 // Checked once per tick, after everything has moved. Fires as soon
-// as any part of the player (body, shield) touches the enemy's body
-// - see findContact() - while the two are closing in on each other.
-// Once they fly apart it can't fire again, so staying in contact
-// doesn't keep re-triggering it.
+// as any part of the player touches any part of the enemy - see
+// findContact() - while the two are closing in on each other. Once
+// they fly apart it can't fire again, so staying in contact doesn't
+// keep re-triggering it.
 //
 // Everything directional follows from one `enemySide`: who is
-// pushed which way, and whether the shield actually faces the enemy
-// (a shield on the back doesn't block).
+// pushed which way.
 function checkEnemyEncounter() {
 
     if (!enemy.alive || !player.alive) {
         return;
     }
 
-    const contact = findContact(
-        combatParts(player, player.shield),
-        combatParts(enemy)
-    );
+    const contact = findContact(combatParts(player), combatParts(enemy));
 
     if (!contact) {
         return;
@@ -723,108 +688,53 @@ function checkEnemyEncounter() {
         return;
     }
 
-    // Burst at the player's touching part - shield or body.
+    // Burst at the player's touching part - stance or body.
     spawnParticles(contact.a.x, contact.a.y, COLLISION_PARTICLE_COUNT);
 
-    // The player's sword already counts while it's being set up.
-    const playerStance = playerSwordStance();
-    const enemyStance = enemy.sword ? enemy.sword.stance : null;
+    const playerStance = playerCombatStance();
+    const enemyStance = enemy.stance;
+    const clash = Clash.resolve(playerStance, enemyStance);
 
-    const shield = player.shield && playerFacing === enemySide;
-    const bothSwords = playerStance && enemyStance;
-    const sameStance = bothSwords && playerStance === enemyStance;
+    const playerAway = withEncounterPush(
+        awaySpeed(clash.a, closing, playerApproach, PLAYER_PUSH_IMPULSE)
+    );
+    const enemyAway = withEncounterPush(
+        awaySpeed(clash.b, closing, enemyApproach, ENEMY_PUSH_IMPULSE)
+    );
 
-    const holderBefore = initiative.holder;
-
-    // New speeds away from the other side.
-    let playerAway;
-    let enemyAway;
-
-    // Who bounces off - the other one stands firm. Stays null when
-    // both are reflected, or the bodies just exchange their speeds.
-    let loser = null;
-
-    // Which rule decided - for the log only.
-    let rule;
-
-    if (shield) {
-        loser = enemy;
-        rule = "shield reflects the enemy";
-    }
-    else if (sameStance) {
-        initiative.swap();
-        rule = "same stance, initiative swaps";
-    }
-    else if (bothSwords) {
-        loser = initiative.has(player) ? enemy : player;
-        rule = "different stances, the one without initiative is pushed back";
-    }
-    else if (playerStance || enemyStance) {
-        const armed = playerStance ? player : enemy;
-        initiative.give(armed);
-        loser = armed === player ? enemy : player;
-        rule = "only one sword, its owner gets the initiative";
-    }
-    else {
-        rule = "no weapons, speeds exchanged";
-    }
-
-    if (loser === enemy) {
-        playerAway = 0;
-        enemyAway = closing;
-    }
-    else if (loser === player) {
-        playerAway = closing + SWORD_IMPULSE;
-        enemyAway = 0;
-    }
-    else if (sameStance) {
-        playerAway = playerApproach;
-        enemyAway = enemyApproach;
-    }
-    else {
-        playerAway = enemyApproach;
-        enemyAway = playerApproach;
-    }
-
-    player.mover.knock(-enemySide * withEncounterPush(playerAway));
-    enemy.mover.knock(enemySide * withEncounterPush(enemyAway));
+    player.mover.knock(-enemySide * playerAway);
+    enemy.mover.knock(enemySide * enemyAway);
 
     if (LOG_ENCOUNTERS) {
         logEncounter({
-            playerWeapons: describePlayerWeapons(playerStance, shield),
-            enemyWeapons: enemyStance ? `sword ${enemyStance}` : "unarmed",
-            holderBefore,
-            rule,
-            loser,
-            playerSpeed: withEncounterPush(playerAway),
-            enemySpeed: withEncounterPush(enemyAway)
+            playerStance: describeStance(playerStance, !player.stance),
+            enemyStance: describeStance(enemyStance, false),
+            clash,
+            playerSpeed: playerAway,
+            enemySpeed: enemyAway
         });
     }
 
-    // The shield comes down once it has done its job (enemy pushed
-    // back). Any other encounter takes it down too, so a push on the
-    // player isn't swallowed by the shield holding it in place.
-    hideShield();
-
-    sheatheSword(player);
+    clearStance(player);
     cancelWindup();
-    armEnemy();
+    clearStance(enemy);
+    enemyTactics.reset();
 }
 
 
-// The player's stance for the encounter: the drawn sword's, or the
-// one being set up (see SwordWindup.js) - or null.
-function playerSwordStance() {
+// A side's speed away from the other after the encounter, from its
+// Clash outcome. `approach` is its own speed toward the other before.
+function awaySpeed(outcome, closing, approach, pushImpulse) {
 
-    if (player.sword) {
-        return player.sword.stance;
+    if (outcome === Clash.PUSHED) {
+        return closing + pushImpulse;
     }
 
-    if (player.windup) {
-        return player.windup.stance;
+    if (outcome === Clash.REFLECTED) {
+        return approach;
     }
 
-    return null;
+    return 0;
 }
 
 
@@ -832,42 +742,22 @@ function playerSwordStance() {
 const LOG_ENCOUNTERS = true;
 
 
-// "shield", "sword above (set up)", ... - `blocking` is whether the
-// shield faces the enemy.
-function describePlayerWeapons(stance, blocking) {
+// "attack above (set up)", "block dash", "none".
+function describeStance(stance, settingUp) {
 
-    const parts = [];
-
-    if (player.shield) {
-        parts.push(blocking ? "shield" : "shield (on back)");
+    if (!stance) {
+        return "none";
     }
 
-    if (stance) {
-        parts.push(player.sword ? `sword ${stance}` : `sword ${stance} (set up)`);
-    }
-
-    return parts.length > 0 ? parts.join(" + ") : "unarmed";
-}
-
-
-function fighterName(fighter) {
-    return fighter === player ? "player" : "enemy";
+    return `${stance.kind} ${stance.direction}` + (settingUp ? " (set up)" : "");
 }
 
 
 function logEncounter(e) {
 
-    const holderAfter = initiative.holder;
-    const initiativeText = e.holderBefore === holderAfter
-        ? `${fighterName(holderAfter)} (kept)`
-        : `${fighterName(e.holderBefore)} -> ${fighterName(holderAfter)}`;
-
-    const pushedText = e.loser ? `${fighterName(e.loser)} pushed back` : "both bounce";
-
     console.log(
-        `Encounter | player: ${e.playerWeapons} | enemy: ${e.enemyWeapons}` +
-        ` | initiative: ${initiativeText}` +
-        ` | ${e.rule}: ${pushedText}` +
+        `Encounter | player: ${e.playerStance} | enemy: ${e.enemyStance}` +
+        ` | ${e.clash.rule}: player ${e.clash.a}, enemy ${e.clash.b}` +
         ` | speeds away: player ${e.playerSpeed.toFixed(1)}, enemy ${e.enemySpeed.toFixed(1)} cells/s`
     );
 }
@@ -952,8 +842,8 @@ document.addEventListener("keydown", event => {
 
     const key = event.key.toLowerCase();
 
-    // Auto-repeat is ignored: a held key would keep restarting the
-    // enemy's copy (see StanceMirror.js).
+    // Auto-repeat is ignored: a held key would keep making the enemy
+    // react anew (see EnemyTactics.js).
     if (key === "w") {
         if (!event.repeat) {
             drawSword("above");
@@ -964,15 +854,6 @@ document.addEventListener("keydown", event => {
     if (key === "s") {
         if (!event.repeat) {
             drawSword("below");
-        }
-        return;
-    }
-
-    // Auto-repeat ignored here too: holding A shouldn't raise the
-    // shield again the moment it wears off.
-    if (key === "a") {
-        if (!event.repeat) {
-            showShield();
         }
         return;
     }

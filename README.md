@@ -25,13 +25,13 @@ by `SplashScreen.js`/`SpeechBubble.js` before this split:
 | [MovingObject.js](MovingObject.js) | Base class for everything that moves (`Player`, `Enemy`): position + a `Mover`. |
 | [MovementSystem.js](MovementSystem.js) | Moves every registered `MovingObject` once per tick, one cell at a time, against per-object rules. |
 | [RubberBand.js](RubberBand.js) | Combat pull: player and enemy accelerate toward each other while in combat — see "Rubber band" below. |
-| [Player.js](Player.js) | Player state (`extends MovingObject`): facing and `sword`/`shield` weapon references. |
-| [PlayerController.js](PlayerController.js) | Arrow-key input → player steps / braking / combat impulses, sampled once per tick. |
-| [Sword.js](Sword.js) | A fighter's sword (player's and enemy's), held above or below its owner — see "Combat" below. |
-| [SwordWindup.js](SwordWindup.js) | Short set up mark above/below the player before its sword is out — see "Combat" below. |
-| [Shield.js](Shield.js) | The player's shield: lasts `Shield.DURATION`, roots the player while up — see "Combat" below. |
-| [Initiative.js](Initiative.js) | Which fighter has the initiative, shown as a `!` above its head — see "Push" below. |
-| [StanceMirror.js](StanceMirror.js) | Delayed copy of the player's stance for the enemy without the initiative — see "Enemy sword" below. |
+| [Player.js](Player.js) | Player state (`extends MovingObject`): facing, `stance` and attack set up. |
+| [PlayerController.js](PlayerController.js) | Arrow-key input → player steps / braking / charges / bracing for a block, sampled once per tick. |
+| [Stance.js](Stance.js) | A fighter's attack or block (above, below, dash), drawn in front of its owner — see "Combat" below. |
+| [Clash.js](Clash.js) | Decides a collision from both stances (firm / pushed / reflected) — see "Push" below. |
+| [Bracing.js](Bracing.js) | Braking to a stop before a block, for player and enemy — see "Combat" below. |
+| [SwordWindup.js](SwordWindup.js) | Short set up mark above/below the player before its above/below attack — see "Combat" below. |
+| [EnemyTactics.js](EnemyTactics.js) | Which stance the enemy takes in combat, and when — see "Enemy" below. |
 | [Ground.js](Ground.js) | Background floor plane. |
 | [Enemy.js](Enemy.js) | Patrolling/combat enemy (`extends MovingObject`). |
 | [DeathJump.js](DeathJump.js) | Death feedback: a dying character's copy jumps up and falls out of the play area — see "Push" below. |
@@ -58,8 +58,8 @@ fails at the first `new` call, not at parse time:
    specifically, since `class Tree extends ParallaxObject` needs
    `ParallaxObject` to already exist.
 3. `Mover.js`, `MovingObject.js`, `MovementSystem.js`,
-   `RubberBand.js`, then `Player.js`, `PlayerController.js`, `Sword.js`, `SwordWindup.js`, `Shield.js`,
-   `Initiative.js`, `StanceMirror.js`, `Ground.js`, `Enemy.js`, `Squiggle.js`,
+   `RubberBand.js`, then `Player.js`, `PlayerController.js`, `Stance.js`, `Clash.js`,
+   `Bracing.js`, `SwordWindup.js`, `EnemyTactics.js`, `Ground.js`, `Enemy.js`, `Squiggle.js`,
    `BlinkingText.js`, `SplashScreen.js`. `MovingObject.js` must come
    before `Player.js`/`Enemy.js` (they `extends MovingObject`).
    `Mover.js` only needs to exist by the time something is
@@ -166,7 +166,7 @@ One tick, in this order:
 
 Key handlers never move or render anything themselves. Arrow keys are
 only recorded (the controller acts on them on the next tick), and
-`W`/`S`/`A`/`D` create their objects right away, but those are drawn and
+`W`/`S`/`D` create their objects right away, but those are drawn and
 checked from the next tick on. Input is therefore at most one tick
 (40ms) late, and always on the beat.
 
@@ -296,52 +296,56 @@ way the player is turned, not whether they actually moved. While
 pushed, `facing` doesn't change, so the player stays turned toward
 where the push came from.
 
-## Combat: sword and shield
+## Combat: attacks and blocks
 
-Neither is affected by movement collision (`wouldCollideAt` only
-checks `parallaxObjects`) or by parallax — they're relative to the
-player, not scenery. Both are glued to the player via getters rather
-than a captured position, and both are referenced from
-`player.sword`/`player.shield` (set/cleared by `drawSword()`/
-`sheatheSword()`/`showShield()`/`hideShield()` in `game.js`, which
-also add/remove them from the renderer) rather than module-level
-variables — "which weapon is out" is state that belongs to the
-character.
+*Experimental, branch `block-and-attack-fencing` (from
+`rubber_band_fencing`).* There is no initiative and no shield. Each
+fighter holds at most one **stance** (`player.stance`/`enemy.stance`,
+set/cleared by `setStance()`/`clearStance()` in [game.js](game.js)):
+an **attack** or a **block**, each from one of three directions —
+**above**, **below** or **dash** (a charge straight ahead). Who wins a
+collision is decided by [Clash.js](Clash.js), see "Push". Every
+collision deletes all stances.
 
-- **`Sword`** ([Sword.js](Sword.js), `z = 25`) is held one cell in
-  front of its owner (along `facing`), in one of `Sword.STANCES`:
-  **above** (`W`, on the row above) or **below** (`S`, on the row
-  below). The char is a diagonal pointing away from the owner: facing
-  right, above is `"/"` and below `"\"`; facing left, they're
-  mirrored (`Sword.MIRRORED`). No swing, no cool down. For the
-  player, `drawSword(stance)` first shows a set up
-  ([SwordWindup.js](SwordWindup.js), `z = 26`): `SwordWindup.CHAR`
-  (`"|"`) straight above the player for above, straight below for
-  below, covering the initiative `!`. After `SwordWindup.DURATION`
-  (250 ms, counted in ticks) the sword is out. The other key during
-  the set up only changes its stance (the time left stays); an
-  encounter or death cancels it (`cancelWindup()`). With the sword
-  out, `W`/`S` switch `sword.stance` at once. Key auto-repeat is
-  ignored for `W`/`S`. The sword stays out until the next encounter,
-  which puts it away (`sheatheSword()`); then the player has to press
-  `W`/`S` again. The enemy draws without a set up. The same class is the
-  enemy's sword (see "Enemy"; `enemy.facing` follows its
-  `direction`). It isn't on its owner's row, so it adds no reach — it
-  only decides the outcome of an encounter (see "Push").
-- **`Shield`** (`A`) is raised by `showShield()` on `keydown` (auto-repeat
-  ignored) and lasts `Shield.DURATION` (750 ms, counted in ticks);
-  releasing `A` doesn't lower it. It also comes down at the next
-  encounter (`hideShield()` in `checkEnemyEncounter()`) — with the
-  shield facing the enemy that's the enemy being pushed back; any
-  other encounter takes it down too, so a push on the player isn't
-  swallowed. While it's up the player stops and can't move:
-  `PlayerController.update()` ignores all arrow input, and `tick()`
-  stops the player's `Mover` right after the rubber band's pull.
-  `showShield()` is idempotent (checks `player.shield` first). Its
-  `x`/`y`/`getAscii()` are getters reading `player.x`/`player.y`/
-  `player.facing` live. Character is `"["` when facing left, `"]"`
-  when facing right.
+The directions beat each other in a circle, like
+scissors-paper-rock (`Stance.BEATS`, winner → loser):
 
+`dash → above → below → dash`
+
+**`Stance`** ([Stance.js](Stance.js), `z = 25`) is drawn one cell in
+front of its owner (along `facing`), on the row of its direction
+(`Stance.ROWS`: above -1, below +1, dash 0) and glued to it via
+getters. Chars (`Stance.CHARS`, written for facing right, mirrored
+via `Stance.MIRRORED`): attack above `"/"`, below `"\"`, dash `"-"`;
+every block `"]"`. A dash stance is on its owner's own row, so it
+adds reach (`combatParts()`); above/below don't.
+
+The player's stances:
+
+- **Attack above/below** (`W`/`S`): `drawSword(direction)` first shows a
+  set up ([SwordWindup.js](SwordWindup.js), `z = 26`, `"|"` straight
+  above/below the player) for `SwordWindup.DURATION`, then takes the
+  attack stance. The set up already counts as the attack in a
+  collision (`playerCombatStance()`). The other key during the set up
+  only changes its direction; with an attack held, `W`/`S` switch
+  its direction at once. Key auto-repeat is ignored. Ignored while
+  bracing (below).
+- **Dash attack** (charge): in combat, every fresh arrow press
+  *toward* the enemy adds `PlayerController.COMBAT_IMPULSE` to the
+  speed and takes the dash attack (`hooks.charge()`).
+- **Block**: in combat, holding the arrow *away* from the enemy
+  braces: an attack (or set up) is dropped, and the player brakes by
+  `Bracing.BRAKE` (60 cells/s², [Bracing.js](Bracing.js) — well above
+  the rubber band's pull). A speed away from the enemy (after a push)
+  isn't braked; the pull turns it around first. Once stopped, the
+  player takes the block: **above** while `ArrowUp` is held,
+  **below** while `ArrowDown` is held (the most recent one wins), else
+  **dash**. Up/down don't step while bracing, and switch the block's
+  direction at once while it's held. Releasing the arrow (or leaving
+  combat) drops the block.
+
+A fighter holding a block doesn't move: `holdBlockers()` stops its
+`Mover` every tick, right after the rubber band's pull.
 ## Enemy
 
 `Enemy` (`extends MovingObject`, `z = 15`, drawn as `"E"`) moves on
@@ -368,20 +372,23 @@ environment. That also removes it from the world and the movement
 system, so a vanished enemy is inert even though the `enemy` reference
 itself is never reassigned/replaced.
 
-**Enemy sword:** `armEnemy()` (in [game.js](game.js)) runs when the
-game starts and after every encounter. If the enemy holds the
-initiative, it draws a `Sword` (see "Combat") right away in a stance
-picked at random (`Sword.randomStance()`) — no warm up, no cool down.
-Without the initiative it stays unarmed; each time the player picks a
-stance (`W`/`S`), the enemy takes the same stance
-`StanceMirror.DELAY` (250 ms) later ([StanceMirror.js](StanceMirror.js),
-counted in ticks; a new stance before then restarts the delay, an
-encounter or death cancels it). If the player still has no sword (and
-no set up running) when the two are about to collide — same row, at
-most `ENEMY_DRAW_DISTANCE` (3) cells apart, and closing in by position
-or speed — the unarmed enemy draws a random stance after all
-(`armEnemyBeforeContact()`, checked each tick after movement).
-`enemy.sword` mirrors `player.sword`.
+**Enemy stances** ([EnemyTactics.js](EnemyTactics.js)): in combat,
+`enemyTactics.update(dt)` picks the enemy's stance. After every
+collision (`reset()`) it waits `EnemyTactics.DECISION_DELAY` (300 ms),
+then chooses:
+
+- with `COUNTER_CHANCE` (0.4), a stance that beats the player's
+  current one (`Clash.favors()`: the player pushed back, or reflected
+  while the enemy stands firm) — if the player shows a stance;
+- otherwise an attack (`ATTACK_CHANCE`, 0.6) or a block, in a random
+  direction.
+
+Whenever the player shows a new stance, it chooses again
+`REACTION_DELAY` (250 ms) later. An attack is taken at once; a dash
+attack also charges toward the player with `CHARGE_IMPULSE` (4
+cells/s). A block first brakes the enemy to a stop (`Bracing.brace()`,
+same as the player), then holds for `BLOCK_DURATION` (1000 ms), then
+the enemy drops it and chooses anew.
 
 The enemy isn't in `parallaxObjects` (it has no corners, its position
 isn't a function of the player) and isn't checked in `wouldCollideAt`.
@@ -401,83 +408,64 @@ from the other fighter. Every encounter **recalculates both speeds
 from the current ones**, via `mover.knock(vx)`.
 
 At the moment of contact, each side's speed toward the other
-(negative while moving away) adds up to the **closing speed**. The
-weapons decide how it is shared out (all results are speeds *away*
-from the other side):
+(negative while moving away) adds up to the **closing speed**. Both
+stances decide, via `Clash.resolve(playerStance, enemyStance)`
+([Clash.js](Clash.js)), what each side gets — as a speed *away* from
+the other side:
 
-| Player | Enemy | Player result | Enemy result |
-|---|---|---|---|
-| shield up (reflector) | any | 0 (stands firm) | closing speed |
-| sword, same stance (reflection, initiative swaps) | sword | own speed × -1 | own speed × -1 |
-| sword, other stance | sword | whoever lacks the initiative: closing speed (+ `SWORD_IMPULSE` for the player); the other: 0 | |
-| no sword | sword (initiative goes to the enemy) | closing speed + `SWORD_IMPULSE` | 0 |
-| sword | no sword (initiative goes to the player) | 0 | closing speed |
-| no sword | no sword | enemy's speed | player's speed (plain exchange) |
+- **firm**: 0 (stands its ground)
+- **pushed** back: closing speed + `PLAYER_PUSH_IMPULSE` (6) /
+  `ENEMY_PUSH_IMPULSE` (0)
+- **reflected**: its own speed, turned around (× -1)
 
-**Initiative** ([Initiative.js](Initiative.js), `z = 24`): exactly one
-fighter holds it, shown as `Initiative.MARK` (`"!"`) above its head
-(`MARK_DX`/`MARK_DY`), glued to it via getters and hidden once it's
-dead. The enemy starts with it (a better challenge). It changes on a same-stance
-encounter (`initiative.swap()`), and on an encounter where only one
-fighter has its sword out (and no shield faces the enemy) - then it
-goes to the sword's owner (`initiative.give()`). The shield and every
-other case leave it where it is.
+| Side A | Side B | Result |
+|---|---|---|
+| attack | attack, other direction | the losing direction (see `Stance.BEATS`) is pushed, the winner firm |
+| attack | attack, same direction | both reflected |
+| attack | block, same direction | attacker reflected, blocker firm |
+| attack | block, other direction | blocker pushed, attacker firm |
+| block | block | both reflected |
+| any stance | none | the one without is pushed, the other firm |
+| none | none | both reflected |
 
-`SWORD_IMPULSE` (6 cells/s, in [game.js](game.js)) is the force the
-enemy's sword adds to the player when it hits. The player's sword
-adds nothing. After every encounter both swords are put away; the
-enemy draws a new one at once if it holds the initiative, otherwise
-it copies the player's stance (see "Enemy sword"); the player draws
-with `W`/`S`.
-
-The player's sword already counts as drawn while its set up
-(`SwordWindup`) is running — `playerSwordStance()` takes the stance
-from either.
+After every encounter both stances and the player's set up are
+deleted, and the enemy chooses anew (`enemyTactics.reset()`).
 
 **Encounter log:** with `LOG_ENCOUNTERS = true` (in
 [game.js](game.js)), every encounter writes one line to the browser
-console: both sides' weapons (sword stance, `(set up)`, shield or
-`shield (on back)`), the initiative (`kept` or `before -> after`),
-the rule that decided, who was pushed back, and both resulting speeds
-away from the other side, e.g.
-`Encounter | player: sword above (set up) | enemy: sword below | initiative: enemy (kept) | different stances, the one without initiative is pushed back: player pushed back | speeds away: player 20.0, enemy 0.0 cells/s`.
+console: both stances (`(set up)` for the player's set up), the rule
+that decided, both outcomes and both resulting speeds away from the
+other side, e.g.
+`Encounter | player: attack above (set up) | enemy: block below | block misses, blocker pushed back: player firm, enemy pushed | speeds away: player 0.0, enemy 20.0 cells/s`.
 
-On top of the table, everyone who bounces off (result > 0) gets
-`ENCOUNTER_PUSH` (1 cell/s) extra; whoever stands firm keeps 0. The
-fixed tick loses a little speed on every bounce (the pull already
-brakes the first tick after the reversal), and without this the
-fight would slowly die down.
-
-If both `sword` and `shield` are somehow active at once, shield wins —
-blocking takes priority over attacking.
+On top of that, everyone who bounces off (result > 0) gets
+`ENCOUNTER_PUSH` extra; whoever stands firm keeps 0. The fixed tick
+loses a little speed on every bounce (the pull already brakes the
+first tick after the reversal), and without this the fight would
+slowly die down.
 
 **Contact:** an encounter happens when the two sides *touch*, not
 when they overlap. Each side is a list of parts (`combatParts()`):
-the player's body plus its shield if up, and the enemy's body. Swords
-don't count — they're held on the rows above/below. `findContact()`
-looks for a player part and an enemy part on the same row, at most
-`CONTACT_DISTANCE` (1) cells apart, i.e. on adjacent cells. With the
-shield up, the player touches an enemy two cells away. The collision
-particles burst at the player's touching part (shield or body).
+its body plus its stance if that's a dash (held on the body's row).
+`findContact()` looks for a player part and an enemy part on the
+same row, at most `CONTACT_DISTANCE` (1) cells apart, i.e. on
+adjacent cells. With a dash stance, a fighter touches the other one
+two cells away. The collision particles burst at the player's
+touching part (stance or body).
 
 **Directions:** bodies never share a cell, so `enemySide` (-1/1,
 which side of the player the enemy is on) comes straight from the
 current positions. It falls back to where they stood before the tick
-(`previousX`), then to `player.facing`, only in odd cases. It
-decides everything directional:
-
-- the player is pushed away from `enemySide`, the enemy toward it
-  (i.e. away from the player);
-- the player's shield only counts if `player.facing` points toward
-  `enemySide` — a shield on the back is treated as not up. Swords
-  don't face anywhere, only their stance counts.
+(`previousX`), then to `player.facing`, only in odd cases. The player
+is pushed away from `enemySide`, the enemy toward it (i.e. away from
+the player).
 
 - `checkEnemyEncounter()` runs once per tick, after all movement, and
   only fires when both are alive, touching, and **closing in**
   (closing speed > 0). Right after an encounter they move apart, so
   staying in contact doesn't keep re-triggering it. Standing pressed
   together (a clinch), the pull closes in by a tiny amount every tick
-  and the swords decide who bounces off.
+  and the stances decide who bounces off.
 - Running into the border/scenery fast enough kills, see "Movement".
   `vanishEnemy()` (and `killPlayer()`) call `playDeathJump()`: a
   `DeathJump` (`z = 30`, same character as the dead one) starts at
@@ -509,7 +497,6 @@ Known gaps / deliberate simplifications:
   `parallaxObject`'s *current* rendered position, not a predicted one.
   That's fine because the player moves first in the tick and updates
   the parallax on every step.
-- The enemy has no shield, only a sword.
 
 ## Rubber band (combat)
 
@@ -529,10 +516,11 @@ other while they're **in combat**: both alive and at most
 - **An encounter** (`checkEnemyEncounter()`) recalculates both speeds
   from the current ones, see "Push". Hitting a border or scenery at
   `LETHAL_SPEED` or more is deadly, pushed or pulled alike.
-- **Arrow keys**: every fresh left/right press adds
-  `PlayerController.COMBAT_IMPULSE` (4 cells/s) in that direction,
-  once. Holding the key adds nothing more, and left/right don't step
-  in combat. Up/down step as usual, so moving 2 rows away leaves
+- **Arrow keys**: every fresh press toward the enemy adds
+  `PlayerController.COMBAT_IMPULSE` (4 cells/s) once and takes the
+  dash attack; holding the arrow away from the enemy braces for a
+  block (see "Combat"). Left/right don't step in combat. Up/down step
+  as usual (except while bracing), so moving 2 rows away leaves
   combat. The player always faces the enemy in combat.
 - **Blocked** by something slower than `LETHAL_SPEED`: the speed
   stops (`mover.stop()`), then the pull builds up again. Blocked by

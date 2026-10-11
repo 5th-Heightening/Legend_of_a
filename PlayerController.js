@@ -14,12 +14,19 @@
 // against it digs in (no step, brakes DIG_IN_FACTOR times harder),
 // holding it along rides it (steps on top of it, RIDE_FACTOR).
 //
-// In combat (see RubberBand.js) left/right don't step. Each fresh
-// press adds COMBAT_IMPULSE to the player's speed once instead -
-// holding the key adds nothing more. The player keeps facing the
-// enemy. Up/down step as usual.
+// In combat (see RubberBand.js) left/right don't step, and the player
+// keeps facing the enemy:
+// - each fresh press toward the enemy is a charge: it adds
+//   COMBAT_IMPULSE to the player's speed once and takes the dash
+//   attack (hooks.charge())
+// - holding the arrow away from the enemy braces for a block: the
+//   player brakes (see Bracing.js) and, once stopped, takes the block
+//   stance (hooks.block(direction)) - above while up is held, below
+//   while down is held, else dash. Up/down don't step meanwhile.
+//   Releasing the arrow drops the block (hooks.unblock()).
+// Otherwise up/down step as usual.
 //
-// While the shield is up, all movement input is ignored.
+// The hooks are set in game.js, which owns the stances.
 class PlayerController {
 
     static DIRECTIONS = {
@@ -59,6 +66,14 @@ class PlayerController {
 
         // Set in game.js - decides when the player is in combat.
         this.rubberBand = null;
+
+        // Set in game.js: charge(), brace(), block(direction),
+        // unblock() - see fence().
+        this.hooks = null;
+
+        // Holding the arrow away from the enemy in combat (braking or
+        // blocking).
+        this.bracing = false;
     }
 
 
@@ -99,21 +114,22 @@ class PlayerController {
 
         const presses = this.presses.splice(0);
 
-        // Shield up: no movement at all - presses made meanwhile are
-        // dropped (game.js holds the player in place, see tick()).
-        if (this.player.shield) {
-            this.holdTime = 0;
-            return;
-        }
         const key = presses.at(-1) ?? this.heldArrows.at(-1);
         const mover = this.player.mover;
         const inCombat = this.rubberBand !== null && this.rubberBand.engaged();
 
         if (inCombat) {
-            this.fence(presses);
+            this.fence(dt, presses);
         }
         else {
+            this.stopBracing();
             this.brake(dt, key ? PlayerController.DIRECTIONS[key].dx : 0);
+        }
+
+        // Bracing: the arrows only pick the block - see fence().
+        if (this.bracing) {
+            this.holdTime = 0;
+            return;
         }
 
         if (!key) {
@@ -191,22 +207,73 @@ class PlayerController {
     }
 
 
-    // Combat: every fresh left/right press adds COMBAT_IMPULSE to the
-    // speed, and the player turns toward the enemy.
-    fence(presses) {
-
-        for (const key of presses) {
-            const { dx } = PlayerController.DIRECTIONS[key];
-
-            if (dx !== 0) {
-                this.player.mover.accelerate(dx * PlayerController.COMBAT_IMPULSE);
-            }
-        }
+    // Combat: a fresh press toward the enemy charges, holding the
+    // arrow away from it braces for a block - see the top of this
+    // file. The player turns toward the enemy.
+    fence(dt, presses) {
 
         const toward = this.rubberBand.towardOther(this.player);
 
         if (toward !== 0) {
             this.player.facing = toward < 0 ? "left" : "right";
         }
+
+        for (const key of presses) {
+            const { dx } = PlayerController.DIRECTIONS[key];
+
+            if (dx !== 0 && dx === toward) {
+                this.player.mover.accelerate(dx * PlayerController.COMBAT_IMPULSE);
+                this.hooks.charge();
+            }
+        }
+
+        const away = toward !== 0 && this.heldArrows.some(key =>
+            PlayerController.DIRECTIONS[key].dx === -toward
+        );
+
+        if (!away) {
+            this.stopBracing();
+            return;
+        }
+
+        if (!this.bracing) {
+            this.bracing = true;
+            this.hooks.brace();
+        }
+
+        const blocking = this.player.stance !== null && this.player.stance.kind === Stance.BLOCK;
+
+        if (blocking || Bracing.brace(this.player, toward, dt)) {
+            this.hooks.block(this.blockDirection());
+        }
+    }
+
+
+    // The block the held arrows ask for: the most recently pressed of
+    // up/down, else dash.
+    blockDirection() {
+
+        for (let i = this.heldArrows.length - 1; i >= 0; i--) {
+            const { dy } = PlayerController.DIRECTIONS[this.heldArrows[i]];
+
+            if (dy !== 0) {
+                return dy < 0 ? "above" : "below";
+            }
+        }
+
+        return "dash";
+    }
+
+
+    // Lets go of the arrow away from the enemy (or leaves combat):
+    // the block, if taken, is dropped.
+    stopBracing() {
+
+        if (!this.bracing) {
+            return;
+        }
+
+        this.bracing = false;
+        this.hooks.unblock();
     }
 }
