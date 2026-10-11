@@ -37,7 +37,7 @@ class Stance {
 
     static CHARS = {
         attack: { above: "/", below: "\\", dash: "-" },
-        block: { above: "]", below: "]", dash: "]" }
+        block: { above: "\\", below: "/", dash: "]" }
     };
 
     static MIRRORED = { "/": "\\", "\\": "/", "]": "[", "[": "]", "-": "-" };

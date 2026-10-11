@@ -317,7 +317,8 @@ front of its owner (along `facing`), on the row of its direction
 (`Stance.ROWS`: above -1, below +1, dash 0) and glued to it via
 getters. Chars (`Stance.CHARS`, written for facing right, mirrored
 via `Stance.MIRRORED`): attack above `"/"`, below `"\"`, dash `"-"`;
-every block `"]"`. A dash stance is on its owner's own row, so it
+block above `"\"`, below `"/"`, dash `"]"` (so facing left, an
+upper block is `"/"` and a lower one `"\"`). A dash stance is on its owner's own row, so it
 adds reach (`combatParts()`); above/below don't.
 
 The player's stances:
