@@ -389,7 +389,9 @@ Whenever the player shows a new stance, it chooses again
 attack also charges toward the player with `CHARGE_IMPULSE` (4
 cells/s). A block first brakes the enemy to a stop (`Bracing.brace()`,
 same as the player), then holds for `BLOCK_DURATION` (1000 ms), then
-the enemy drops it and chooses anew.
+the enemy drops it and chooses anew. With `EnemyTactics.CAN_BLOCK`
+off (currently), the enemy never blocks: it only picks attacks, also
+when countering.
 
 The enemy isn't in `parallaxObjects` (it has no corners, its position
 isn't a function of the player) and isn't checked in `wouldCollideAt`.

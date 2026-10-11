@@ -8,6 +8,7 @@
 //   stance (see Clash.favors()) - if the player shows one
 // - otherwise an attack (ATTACK_CHANCE) or a block, in a random
 //   direction
+// With CAN_BLOCK off, the enemy only ever attacks.
 // Whenever the player shows a new stance, the enemy picks again
 // REACTION_DELAY later.
 //
@@ -28,6 +29,9 @@ class EnemyTactics {
     // 0..1.
     static COUNTER_CHANCE = 0.4;
     static ATTACK_CHANCE = 0.6;
+
+    // Whether the enemy takes block stances at all.
+    static CAN_BLOCK = false;
 
     // Cells per second.
     static CHARGE_IMPULSE = 4;
@@ -126,14 +130,17 @@ class EnemyTactics {
     choose(playerStance) {
 
         if (playerStance && Math.random() < EnemyTactics.COUNTER_CHANCE) {
-            const winners = Stance.OPTIONS.filter(option => Clash.favors(option, playerStance));
+            const winners = Stance.OPTIONS.filter(option =>
+                EnemyTactics.allowed(option) && Clash.favors(option, playerStance)
+            );
 
             if (winners.length > 0) {
                 return winners[Math.floor(Math.random() * winners.length)];
             }
         }
 
-        const kind = Math.random() < EnemyTactics.ATTACK_CHANCE ? Stance.ATTACK : Stance.BLOCK;
+        const attack = !EnemyTactics.CAN_BLOCK || Math.random() < EnemyTactics.ATTACK_CHANCE;
+        const kind = attack ? Stance.ATTACK : Stance.BLOCK;
 
         return { kind, direction: Stance.randomDirection() };
     }
@@ -164,6 +171,11 @@ class EnemyTactics {
         this.plan = null;
         this.blocking = false;
         this.decide();
+    }
+
+
+    static allowed(option) {
+        return EnemyTactics.CAN_BLOCK || option.kind !== Stance.BLOCK;
     }
 
 
