@@ -20,7 +20,9 @@ by `SplashScreen.js`/`SpeechBubble.js` before this split:
 | [GameLoop.js](GameLoop.js) | The single fixed-tick clock everything runs on — see "Game loop" below. |
 | [World.js](World.js) | Set of all objects in play: adds/removes them to/from the renderer and calls `update(dt)` on each every tick. |
 | [ParallaxObject.js](ParallaxObject.js) | Base class for scenery that shifts with the player — see "Parallax scenery" below. |
-| [Tree.js](Tree.js), [Mountain.js](Mountain.js) | Scenery pieces, both `extends ParallaxObject`. |
+| [LevelPart.js](LevelPart.js) | One environment part of a level (`extends ParallaxObject`), built from level-file data — see "Levels" below. |
+| [Level.js](Level.js) | A level: its parts and its exits to the neighbouring levels, plus the registry (`Level.register`/`Level.get`) the level files fill — see "Levels" below. |
+| [levels/](levels/) | The level files, one per level (`meadow.js`, `forest.js`). Data only. |
 | [Mover.js](Mover.js) | Movement state of one moving object: own velocity, queued steps, knockback (`Push`), sub-cell offset — see "Movement" below. |
 | [MovingObject.js](MovingObject.js) | Base class for everything that moves (`Player`, `Enemy`): position + a `Mover`. |
 | [MovementSystem.js](MovementSystem.js) | Moves every registered `MovingObject` once per tick, one cell at a time, against per-object rules. |
@@ -51,9 +53,11 @@ fails at the first `new` call, not at parse time:
 1. `theme.js` first — independent of everything else, needs only the
    button element (already in the HTML above it).
 2. `AsciiRenderer.js`, `GameLoop.js`, `World.js`, then
-   `ParallaxObject.js`, then `Tree.js`/`Mountain.js` — in that order
-   specifically, since `class Tree extends ParallaxObject` needs
-   `ParallaxObject` to already exist.
+   `ParallaxObject.js`, `LevelPart.js`, `Level.js`, then the level
+   files `levels/*.js` — in that order specifically, since
+   `class LevelPart extends ParallaxObject` needs `ParallaxObject` to
+   already exist, and every level file calls `Level.register(...)`
+   (which builds `LevelPart`s) the moment it loads.
 3. `Push.js`, `Mover.js`, `MovingObject.js`, `MovementSystem.js`,
    then `Player.js`, `PlayerController.js`, `Sword.js`, `Shield.js`,
    `Ground.js`, `Enemy.js`, `EnemySword.js`, `Squiggle.js`,
@@ -69,8 +73,9 @@ fails at the first `new` call, not at parse time:
    every class above by name.
 
 Adding a new class file just means: pick a name matching the class,
-add one `<script src>` line before `game.js` (before `Tree.js`/
-`Mountain.js` too, only if the new class extends `ParallaxObject`).
+add one `<script src>` line before `game.js` (right after
+`ParallaxObject.js` too, only if the new class extends it). A new
+level file goes next to the other `levels/*.js` lines.
 
 ## Theme toggle
 
@@ -212,7 +217,8 @@ The rules for player and enemy are set in `registerMovement()` in
 - **Player**: stays inside the viewport and doesn't enter scenery
   (`wouldCollideAt`, see "Movement collision"), whether walking *or*
   pushed. Every step leaves a push trace if pushed and updates the
-  parallax.
+  parallax. Edges with an exit are open and change the level (see
+  "Levels").
 - **Enemy**: its own steps follow `enemy.allowsStep(x)` (never onto or
   past the player while chasing). While pushed, `enemyFitsAt(x, y)`
   checks the display bounds and scenery. A push step blocked by those
@@ -236,9 +242,11 @@ movement and combat once `gameStarted` is set.
    toggles its own `visible` every `TITLE_BLINK_INTERVAL` (500ms) in
    `update(dt)`.
 2. **Playing** — the first `keydown` calls `startGame()`, which removes
-   the two title-screen objects, adds `ground`, `mountain`, `tree`,
-   `enemy`, `player` to the world, registers the player and enemy
-   with the movement system, and does one parallax update.
+   the two title-screen objects, adds `ground`, `enemy`, `player` to
+   the world, registers the player and enemy with the movement
+   system, checks all level exits (`Level.checkExits()`) and loads
+   the start level (`START_LEVEL_ID`, see "Levels"), which adds its
+   scenery and does one parallax update.
 
 `BlinkingText` is a minimal renderable: `getAscii()` returns either its
 text or `""` depending on `visible`, which flips on its own timer.
@@ -572,42 +580,135 @@ new SomeLayer({
   edge) then one vertical lerp between those results, rounds to
   integers (the grid only has integer cells), and stores the result in
   `x`/`y`.
-- `getAscii()` is *not* provided by the base class — subclasses
-  (`Tree`, `Mountain`) supply their own art, exactly like any other
-  game object.
+- `getAscii()` is *not* provided by the base class — the subclass
+  (`LevelPart`) supplies the art, exactly like any other game object.
 
 **Driving it:** `updateParallax()` (in [game.js](game.js)) computes
 `t = (player.x - MIN_X) / (MAX_X - MIN_X)` and the equivalent `u` for
 y, then calls `object.updatePosition(t, u)` for every entry in the
-`parallaxObjects` array. It's called once in `startGame()` and after
-every cell the player moves (its `onMoved` movement rule). **If you add a new layer, remember to add the
-instance to `parallaxObjects` too** — being in the renderer's object
-list only makes it draw, it doesn't make it move.
+`parallaxObjects` array — always the current level's `parts` (set by
+`loadLevel()`). It's called on every level load and after every cell
+the player moves (its `onMoved` movement rule).
 
-**Currently defined layers:**
+All scenery comes from level files now — to add a scenery piece, add
+a part to a level (see "Levels" below). Bigger corner spread = moves
+more = reads as closer; smaller spread = reads as farther away.
 
-| Layer | z | Corner spread | Behaves like |
-|---|---|---|---|
-| `mountain` | 1 | narrow (x: 10–22, y: 0–1) | distant background |
-| `tree` | 10 | wide (x: 3–33, y: 3–5) | closer foreground |
+## Levels
 
-Both sit between `ground` (`z = 0`) and `player` (`z = 20`).
+A level is one screen of scenery plus links to its neighbours. Each
+level is one file in [levels/](levels/), and each file is a plain
+script that calls `Level.register({...})`. They're scripts instead of
+JSON because `fetch()` is blocked on `file://` (same reason as "no ES
+modules" above). Every level file needs its own `<script src>` line
+in [Legend_of_a.html](Legend_of_a.html), after `Level.js`.
 
-### Extending it
+### Format
 
-To add another scenery piece:
+```js
+Level.register({
 
-1. `class Bush extends ParallaxObject { constructor(corners) { super(corners, someZ); } getAscii() { return "..."; } }`
-2. Instantiate it with 4 corners (bigger spread = moves more = reads as
-   closer; smaller spread = reads as farther away).
-3. `world.add(instance)` in `startGame()`.
-4. Push it into `parallaxObjects` so `updateParallax()` actually moves
-   it *and* so it's checked for collisions (see below).
-5. If the whole visible shape shouldn't block movement (e.g. only a
-   tree's trunk, not its leafy canopy), override `getCollisionMap()`
-   in the subclass — blank/space rows in that string are exactly as
-   permeable as blank rows in `getAscii()`, just for hit-testing
-   instead of drawing.
+    id: "meadow",              // unique, what exits refer to
+    name: "Meadow",            // optional, display name (defaults to id)
+
+    // Level the player lands in when walking out over that edge of
+    // the play area. null (or left out) = closed, the edge blocks.
+    exits: {
+        left: null,
+        right: "forest",
+        up: null,
+        down: null
+    },
+
+    // Environment parts, any number.
+    parts: [
+        {
+            name: "tree",              // optional, for error messages
+            z: 10,                     // optional, draw order (default LevelPart.DEFAULT_Z = 5)
+
+            // Top-left cell of the art, for the player standing in
+            // each corner of the play area (see "Parallax scenery").
+            corners: {
+                topLeft:     { x: 3,  y: 4 },
+                topRight:    { x: 30, y: 4 },
+                bottomLeft:  { x: 6,  y: 6 },
+                bottomRight: { x: 33, y: 6 }
+            },
+
+            ascii: String.raw`
+ /\
+/##\
+ ||
+ ||
+`,
+            transparentChar: " ",      // optional, default " "
+
+            // true: the ASCII art is the collision map (every visible
+            // character blocks). false: `collision` is used instead.
+            collisionFromAscii: false,
+            collision: String.raw`
+
+
+ ##
+ ##
+`
+        }
+    ]
+});
+```
+
+Rules for the art (`ascii` and `collision`):
+
+- Write it as a `String.raw` template literal, so `\` is just a
+  backslash and needs no escaping. The opening and closing backtick
+  each go on their own line: exactly one leading and one trailing
+  line break are dropped, so the first line of art is row 0. Other
+  empty lines count, as empty rows.
+- The art can't contain a backtick, or `${`.
+- The collision map is laid over the art cell by cell, from the same
+  top-left corner. Every character other than `transparentChar`
+  blocks (`#` is a good convention). Spaces and missing cells don't.
+  Only the player and pushed enemies collide with it (see "Movement
+  collision").
+- `collisionFromAscii` defaults to `true`. With `false`, `collision`
+  is required.
+
+Mistakes in the format (missing corner coordinates, an unknown exit
+side, a duplicate id, `collision` missing) throw while the level file
+loads, so they show up in the browser console straight away.
+`Level.checkExits()` (run at game start) warns about exits pointing at
+level ids that were never registered.
+
+### Changing levels
+
+`START_LEVEL_ID` in [game.js](game.js) is the first level loaded.
+`loadLevel(level)` removes the old level's parts from the world, adds
+the new ones, makes them the `parallaxObjects`, and updates the
+parallax.
+
+The player's `canEnter` rule lets it step one cell outside the play
+area only over an edge that has an exit (`canLeaveTo()`), and only if
+its arrival cell in the next level is free of scenery and of the
+enemy. Otherwise the edge stays closed, as before. It arrives on the
+opposite edge, in the same row (left/right) or column (up/down)
+(`arrivalFor()`). The `onMoved` rule notices that it's outside and
+calls `changeLevel()`. That works for walking and for pushes: a push
+over an open edge carries the player into the next level, while a
+push into a closed edge still kills.
+
+Since the next level's parts are positioned for the player's new spot
+on the opposite edge, the scenery jumps on a level change. That's
+intended: it's a screen change.
+
+### Known gaps
+
+- Enemies aren't part of the level format. The one `enemy` stays in
+  play across level changes and keeps fighting in the new screen.
+- `Ground` isn't part of a level either, and is still a hard-coded
+  `41 x 18` while the play area is `52 x 22` (invisible anyway, since
+  it never draws).
+- Levels keep no state: the same `LevelPart` objects are reused when
+  you come back.
 
 ## Movement collision
 
@@ -648,11 +749,12 @@ regardless.
 
 ### Known rough edges / next steps
 
-- Corner positions for `tree`/`mountain` were chosen by eyeballing the
+- Corner positions in the level files were chosen by eyeballing the
   viewport size, not measured against actual play — worth tuning once
-  you can see it running. The same goes for their collision maps
-  (currently full-shape default): a trunk-only `getCollisionMap()` on
-  `Tree` would probably feel better than blocking the whole canopy.
+  you can see it running. The same goes for the meadow's collision
+  maps (still `collisionFromAscii: true`): a trunk-only `collision`,
+  like the forest's trees have, would probably feel better than
+  blocking the whole canopy.
 - `SpeechBubble.js` exists and looks feature-complete (word wrap,
   pointer aimed at a target object) but isn't loaded or used yet. To
   wire it in: add `<script src="SpeechBubble.js"></script>` next to
