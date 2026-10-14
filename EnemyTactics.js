@@ -24,7 +24,7 @@
 class EnemyTactics {
 
     // Milliseconds.
-    static DECISION_DELAY = 300;
+    static DECISION_DELAY = 750; // 300;    
     static REACTION_DELAY = 500; // 250;
     static BLOCK_DURATION = 1000;
 
