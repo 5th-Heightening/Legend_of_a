@@ -9,7 +9,10 @@ class Particle {
 
     // DEBUG: Try smaller particles 
     static SEQUENCES = // ["Oo+-.", "O*°'´`", ";:,.", ">v<^>v<^>", "%=\"'"];
-                       ["++--.", "**°'´`", ";:,.", "\"\"''``"];
+                        // with smaller particles
+                       // ["++--.", "**°'´`", ";:,.", "\"\"''``"];
+                       // smaller, less divers particles
+                       [";:,.", "\"°'`"];
 
     // "\\|/-\\|/-" rotating particle
     //  ["#Oo+-.", "#O*°'´`", "#;:,."];
