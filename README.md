@@ -29,6 +29,7 @@ by `SplashScreen.js`/`SpeechBubble.js` before this split:
 | [PlayerController.js](PlayerController.js) | Arrow-key and A/D input → player steps / braking / charges / bracing for a block, sampled once per tick. |
 | [Stance.js](Stance.js) | A fighter's attack or block (above, below, dash), drawn in front of its owner — see "Combat" below. |
 | [Clash.js](Clash.js) | Decides a collision from both stances (firm / pushed / reflected) — see "Push" below. |
+| [Initiative.js](Initiative.js) | Which fighter has the initiative: `"!"` mark and particle trail — see "Combat" below. |
 | [Bracing.js](Bracing.js) | Braking to a stop before a block, for player and enemy — see "Combat" below. |
 | [SwordWindup.js](SwordWindup.js) | Short set up mark above/below the player before its above/below attack — see "Combat" below. |
 | [EnemyTactics.js](EnemyTactics.js) | Which stance the enemy takes in combat, and when — see "Enemy" below. |
@@ -354,6 +355,20 @@ The player's stances:
 
 A fighter holding a block doesn't move: `holdBlockers()` stops its
 `Mover` every tick, right after the rubber band's pull.
+
+**Initiative** ([Initiative.js](Initiative.js), `initiative` in
+game.js, `z = 24`) — *graphic only for now, collisions ignore it.*
+After every collision nobody holds it (`initiative.reset()`); the
+first fighter to take a stance afterwards claims it
+(`initiative.claim()`, called from `setStance()` and, for the player,
+already when an attack set up starts in `drawSword()`). The holder
+shows `Initiative.MARK` (`"!"`) above its head and leaves a particle
+trail behind it (`leaveInitiativeTrail()`, every tick after the
+encounter check): one row above for an above attack, one row below
+for a below attack, else on its own row (`Initiative.TRAIL_ROWS`).
+Each tick spawns one slow particle with `Initiative.TRAIL_DENSITY`
+(0.6) at `Initiative.TRAIL_SPEED` (1 cell/s, no gravitation).
+
 ## Enemy
 
 `Enemy` (`extends MovingObject`, `z = 15`, drawn as `"E"`) moves on
@@ -441,7 +456,8 @@ the other side:
 | none | none | both reflected |
 
 After every encounter both stances and the player's set up are
-deleted, and the enemy chooses anew (`enemyTactics.reset()`).
+deleted, the enemy chooses anew (`enemyTactics.reset()`) and nobody
+holds the initiative (`initiative.reset()`).
 
 **Encounter log:** with `LOG_ENCOUNTERS = true` (in
 [game.js](game.js)), every encounter writes one line to the browser

@@ -41,7 +41,7 @@ const movement = new MovementSystem();
 // 3. enemy tactics, rubber band - player and enemy pull on each other in combat
 //    (a fighter holding a block is held in place right after)
 // 4. movement - everything that moves, one cell at a time
-// 5. combat - player/enemy encounter
+// 5. combat - player/enemy encounter, initiative trail
 // 6. draw
 function tick(dt) {
 
@@ -58,6 +58,7 @@ function tick(dt) {
 
         movement.update(dt);
         checkEnemyEncounter();
+        leaveInitiativeTrail();
     }
 
     renderer.render();
@@ -338,6 +339,7 @@ function startGame() {
     world.add(tree);
     world.add(enemy);
     world.add(player);
+    world.add(initiative);
 
     registerMovement();
     updateParallax();
@@ -369,7 +371,13 @@ function startGame() {
 //
 // A fighter holding a block stands still: tick() stops it right
 // after the rubber band's pull.
+//
+// Initiative (graphic only, see Initiative.js): the first fighter to
+// take a stance after a collision claims it - the player already
+// with the start of an attack set up.
 // ==================================================
+
+const initiative = new Initiative();
 
 // Takes the stance `kind` from `direction` - an existing one of the
 // same kind just changes its direction.
@@ -388,6 +396,8 @@ function setStance(fighter, kind, direction) {
 
     fighter.stance = new Stance(fighter, kind, direction);
     world.add(fighter.stance);
+
+    initiative.claim(fighter);
 }
 
 
@@ -430,6 +440,8 @@ function drawSword(direction) {
     });
 
     world.add(player.windup);
+
+    initiative.claim(player);
 }
 
 
@@ -635,6 +647,20 @@ function leavePushTrace(x, y) {
 }
 
 
+// Trail behind the fighter with the initiative (see Initiative.js):
+// with Initiative.TRAIL_DENSITY per tick, one slow particle on the
+// row of its attack.
+function leaveInitiativeTrail() {
+
+    const stance = initiative.has(player) ? playerCombatStance() : enemy.stance;
+    const cell = initiative.trailCell(stance);
+
+    if (cell && Math.random() < Initiative.TRAIL_DENSITY) {
+        spawnParticles(cell.x, cell.y, 1, Initiative.TRAIL_SPEED, false);
+    }
+}
+
+
 // How far apart (in cells, same row) a part of the player and a part
 // of the enemy may be and still touch. 1 = adjacent cells.
 const CONTACT_DISTANCE = 1;
@@ -741,6 +767,7 @@ function checkEnemyEncounter() {
     cancelWindup();
     clearStance(enemy);
     enemyTactics.reset();
+    initiative.reset();
 }
 
 
