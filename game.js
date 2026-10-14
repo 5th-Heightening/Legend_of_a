@@ -372,9 +372,10 @@ function startGame() {
 // A fighter holding a block stands still: tick() stops it right
 // after the rubber band's pull.
 //
-// Initiative (graphic only, see Initiative.js): the first fighter to
-// take a stance after a collision claims it - the player already
-// with the start of an attack set up.
+// Initiative (see Initiative.js): the first fighter to take a stance
+// after a collision claims it - the player already with the start of
+// an attack set up. With Clash.ATTACK_RULE INITIATIVE it decides
+// attack against attack in different directions.
 // ==================================================
 
 const initiative = new Initiative();
@@ -522,7 +523,7 @@ playerController.hooks = {
 };
 
 
-const enemyTactics = new EnemyTactics(enemy, rubberBand, playerCombatStance, {
+const enemyTactics = new EnemyTactics(enemy, rubberBand, playerCombatStance, initiative, {
 
     attack(direction) {
         setStance(enemy, Stance.ATTACK, direction);
@@ -741,7 +742,7 @@ function checkEnemyEncounter() {
 
     const playerStance = playerCombatStance();
     const enemyStance = enemy.stance;
-    const clash = Clash.resolve(playerStance, enemyStance);
+    const clash = Clash.resolve(playerStance, enemyStance, initiativeSide());
 
     const playerAway = withEncounterPush(
         awaySpeed(clash.a, closing, playerApproach, PLAYER_PUSH_IMPULSE)
@@ -768,6 +769,21 @@ function checkEnemyEncounter() {
     clearStance(enemy);
     enemyTactics.reset();
     initiative.reset();
+}
+
+
+// Who holds the initiative, as Clash.resolve() wants it.
+function initiativeSide() {
+
+    if (initiative.has(player)) {
+        return Clash.SIDE_A;
+    }
+
+    if (initiative.has(enemy)) {
+        return Clash.SIDE_B;
+    }
+
+    return null;
 }
 
 

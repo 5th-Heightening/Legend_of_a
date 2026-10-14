@@ -10,6 +10,9 @@
 //
 // The rules:
 // - both attack, by ATTACK_RULE:
+//   - INITIATIVE: the same direction reflects both; otherwise the
+//     side without the initiative (see Initiative.js) is pushed back,
+//     the one with it stands firm (nobody holding it: both reflected)
 //   - MATCH: the side `a` (the player) wins when both directions
 //     are the same, otherwise `b` (the enemy) wins - the loser is
 //     pushed back
@@ -27,15 +30,22 @@ class Clash {
     static REFLECTED = "reflected";
 
     // How attack against attack is decided - see the top of this file.
+    static INITIATIVE = "initiative";
     static MATCH = "match";
     static CIRCLE = "circle";
-    static ATTACK_RULE = Clash.MATCH;
+    static ATTACK_RULE = Clash.INITIATIVE;
+
+    // Which side holds the initiative, for resolve().
+    static SIDE_A = "a";
+    static SIDE_B = "b";
 
 
     // Returns { a, b, rule }: the outcome of each side, and which
     // rule decided (for the encounter log). `a` is the player's
     // stance, `b` the enemy's - with the MATCH rule the sides differ.
-    static resolve(a, b) {
+    // `initiative` is SIDE_A, SIDE_B or null (nobody) - only the
+    // INITIATIVE rule reads it.
+    static resolve(a, b, initiative = null) {
 
         if (!a && !b) {
             return Clash.result(Clash.REFLECTED, Clash.REFLECTED, "no stances, both reflected");
@@ -50,6 +60,23 @@ class Clash {
         const attackA = a.kind === Stance.ATTACK;
         const attackB = b.kind === Stance.ATTACK;
         const same = a.direction === b.direction;
+
+        if (attackA && attackB && Clash.ATTACK_RULE === Clash.INITIATIVE) {
+
+            if (same) {
+                return Clash.result(Clash.REFLECTED, Clash.REFLECTED, "swords match, both reflected");
+            }
+
+            if (initiative === Clash.SIDE_A) {
+                return Clash.result(Clash.FIRM, Clash.PUSHED, "swords differ, player has the initiative");
+            }
+
+            if (initiative === Clash.SIDE_B) {
+                return Clash.result(Clash.PUSHED, Clash.FIRM, "swords differ, enemy has the initiative");
+            }
+
+            return Clash.result(Clash.REFLECTED, Clash.REFLECTED, "swords differ, no initiative, both reflected");
+        }
 
         if (attackA && attackB && Clash.ATTACK_RULE === Clash.MATCH) {
             return same

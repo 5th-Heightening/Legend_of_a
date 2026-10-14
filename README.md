@@ -310,7 +310,12 @@ collision deletes all stances.
 
 Attack against attack is decided by `Clash.ATTACK_RULE`:
 
-- **`Clash.MATCH`** (current): if both swords are in the same
+- **`Clash.INITIATIVE`** (current): same sword position: both
+  reflected. Different positions: the fighter *without* the
+  initiative (see below) is pushed back, the one with it stands
+  firm. Nobody holding it: both reflected. `game.js` passes the
+  holder to `Clash.resolve()` via `initiativeSide()`.
+- **`Clash.MATCH`**: if both swords are in the same
   position the player wins (enemy pushed back), otherwise the enemy
   wins (player pushed back).
 - **`Clash.CIRCLE`**: the directions beat each other in a circle,
@@ -357,8 +362,8 @@ A fighter holding a block doesn't move: `holdBlockers()` stops its
 `Mover` every tick, right after the rubber band's pull.
 
 **Initiative** ([Initiative.js](Initiative.js), `initiative` in
-game.js, `z = 24`) — *graphic only for now, collisions ignore it.*
-After every collision nobody holds it (`initiative.reset()`); the
+game.js, `z = 24`) — decides attack against attack with the
+`INITIATIVE` rule (see "Push"). After every collision nobody holds it (`initiative.reset()`); the
 first fighter to take a stance afterwards claims it
 (`initiative.claim()`, called from `setStance()` and, for the player,
 already when an attack set up starts in `drawSword()`). The holder
@@ -400,8 +405,12 @@ itself is never reassigned/replaced.
 collision (`reset()`) it waits `EnemyTactics.DECISION_DELAY` (300 ms),
 then chooses:
 
-- with the `MATCH` rule (see above): an attack from a random
-  direction other than the player's — if the player shows a stance;
+- with the `INITIATIVE` rule (see above): if the enemy holds the
+  initiative, it reacts — an attack from a random direction other
+  than the player's (if the player shows a stance); otherwise (the
+  player holds it, or nobody yet) an attack in a random direction;
+- with the `MATCH` rule: an attack from a random direction other
+  than the player's — if the player shows a stance;
 - with `COUNTER_CHANCE` (0.4), a stance that beats the player's
   current one (`Clash.favors()`: the player pushed back, or reflected
   while the enemy stands firm) — if the player shows a stance;
@@ -447,8 +456,8 @@ the other side:
 
 | Side A | Side B | Result |
 |---|---|---|
-| attack (player) | attack (enemy), same direction | `MATCH`: enemy pushed, player firm. `CIRCLE`: both reflected |
-| attack (player) | attack (enemy), other direction | `MATCH`: player pushed, enemy firm. `CIRCLE`: the losing direction (see `Stance.BEATS`) is pushed, the winner firm |
+| attack (player) | attack (enemy), same direction | `INITIATIVE`: both reflected. `MATCH`: enemy pushed, player firm. `CIRCLE`: both reflected |
+| attack (player) | attack (enemy), other direction | `INITIATIVE`: the side without the initiative pushed, the other firm (nobody holds it: both reflected). `MATCH`: player pushed, enemy firm. `CIRCLE`: the losing direction (see `Stance.BEATS`) is pushed, the winner firm |
 | attack | block, same direction | attacker reflected, blocker firm |
 | attack | block, other direction | blocker pushed, attacker firm |
 | block | block | both reflected |

@@ -1,5 +1,6 @@
-// Which fighter has the initiative - graphic only for now, it doesn't
-// change any collision.
+// Which fighter has the initiative. With Clash.ATTACK_RULE INITIATIVE
+// it decides attack against attack in different directions (see
+// Clash.js).
 //
 // After a collision nobody holds it (reset()); the first fighter to
 // take a stance afterwards claims it (claim()). Shown as a MARK above

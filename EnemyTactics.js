@@ -4,6 +4,10 @@
 //
 // After every collision (reset()) the enemy waits DECISION_DELAY,
 // then picks a stance (see choose()):
+// - with Clash.ATTACK_RULE INITIATIVE: holding the initiative, it
+//   reacts to the player - an attack from a random direction other
+//   than the player's (if the player shows a stance). Otherwise (the
+//   player holds it, or nobody yet) an attack in a random direction.
 // - with Clash.ATTACK_RULE MATCH: an attack from a random direction
 //   other than the player's - if the player shows a stance
 // - with COUNTER_CHANCE, one that wins against the player's current
@@ -24,7 +28,7 @@
 class EnemyTactics {
 
     // Milliseconds.
-    static DECISION_DELAY = 750; // 300;    
+    static DECISION_DELAY = 500; // 300;    
     static REACTION_DELAY = 500; // 250;
     static BLOCK_DURATION = 1000;
 
@@ -40,11 +44,12 @@ class EnemyTactics {
 
 
     // `readPlayerStance()` returns the player's { kind, direction }
-    // or null.
-    constructor(enemy, rubberBand, readPlayerStance, hooks) {
+    // or null. `initiative` is the Initiative (see Initiative.js).
+    constructor(enemy, rubberBand, readPlayerStance, initiative, hooks) {
         this.enemy = enemy;
         this.rubberBand = rubberBand;
         this.readPlayerStance = readPlayerStance;
+        this.initiative = initiative;
         this.hooks = hooks;
 
         this.reset();
@@ -131,8 +136,19 @@ class EnemyTactics {
 
     choose(playerStance) {
 
-        // MATCH rule: unmatched swords win for the enemy, so it always
-        // attacks from another direction than the player's.
+        // INITIATIVE rule: with the initiative, a different direction
+        // than the player's wins - without it, a random one.
+        if (Clash.ATTACK_RULE === Clash.INITIATIVE) {
+            const react = playerStance && this.initiative.has(this.enemy);
+
+            return {
+                kind: Stance.ATTACK,
+                direction: Stance.randomDirection(react ? playerStance.direction : null)
+            };
+        }
+
+        // MATCH rule: the enemy always attacks from another direction
+        // than the player's.
         if (playerStance && Clash.ATTACK_RULE === Clash.MATCH) {
             return {
                 kind: Stance.ATTACK,
