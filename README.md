@@ -356,7 +356,11 @@ The player's stances:
   the enemy's attack stance; without one it stays where it is, or
   starts at `SHIELD_DEFAULT_DIRECTION` (dash). The arrows don't step
   while bracing. Releasing the key (or leaving combat) drops the
-  block.
+  block. `alignShield()` runs right after the enemy's choice every
+  tick, so the shield already faces a new enemy attack in the same
+  tick's collision. A collision ends the bracing
+  (`playerController.spendBlock()`): to block again, the key has to
+  be released and pressed anew.
 
 A fighter holding a block doesn't move: `holdBlockers()` stops its
 `Mover` every tick, right after the rubber band's pull.
@@ -364,8 +368,8 @@ A fighter holding a block doesn't move: `holdBlockers()` stops its
 **Initiative** ([Initiative.js](Initiative.js), `initiative` in
 game.js, `z = 24`) — decides attack against attack with the
 `INITIATIVE` rule (see "Push"). After every collision nobody holds it (`initiative.reset()`); the
-first fighter to take a stance afterwards claims it
-(`initiative.claim()`, called from `setStance()` and, for the player,
+first fighter to take an *attack* stance afterwards claims it — a
+block doesn't (`initiative.claim()`, called from `setStance()` and, for the player,
 already when an attack set up starts in `drawSword()`). The holder
 shows `Initiative.MARK` (`"!"`) above its head and leaves a particle
 trail behind it (`leaveInitiativeTrail()`, every tick after the
@@ -468,6 +472,17 @@ After every encounter both stances and the player's set up are
 deleted, the enemy chooses anew (`enemyTactics.reset()`) and nobody
 holds the initiative (`initiative.reset()`).
 
+**Grace rule:** every encounter also sets each fighter's `grace`
+(`grantGrace()`): true if its outcome is one of `GRACE_OUTCOMES`
+(firm or reflected — not pushed back), else false. The first deadly
+hit of the border/scenery afterwards (`LETHAL_SPEED` or more) then
+doesn't kill: the grace is used up (`useGrace()`) and the fighter
+just stops, like a slow hit, with a small particle burst
+(`GRACE_PARTICLE_COUNT`; with `LOG_ENCOUNTERS` on also a console
+line). So the bounce-off after a won (or
+even) collision can't kill; the next encounter grants the grace
+anew.
+
 **Encounter log:** with `LOG_ENCOUNTERS = true` (in
 [game.js](game.js)), every encounter writes one line to the browser
 console: both stances (`(set up)` for the player's set up), the rule
@@ -552,11 +567,12 @@ other while they're **in combat**: both alive and at most
   (negative while flying apart).
 - **An encounter** (`checkEnemyEncounter()`) recalculates both speeds
   from the current ones, see "Push". Hitting a border or scenery at
-  `LETHAL_SPEED` or more is deadly, pushed or pulled alike.
-- **Arrow keys**: every fresh press toward the enemy adds
+  `LETHAL_SPEED` or more is deadly, pushed or pulled alike — except
+  for the grace rule (see "Push").
+- **A/D**: every fresh press toward the enemy adds
   `PlayerController.COMBAT_IMPULSE` (4 cells/s) once and takes the
-  dash attack; holding the arrow away from the enemy braces for a
-  block (see "Combat"). Left/right don't step in combat. Up/down step
+  dash attack; holding the key away from the enemy braces for a
+  block (see "Combat"). Left/right arrows don't step in combat. Up/down step
   as usual (except while bracing), so moving 2 rows away leaves
   combat. The player always faces the enemy in combat.
 - **Blocked** by something slower than `LETHAL_SPEED`: the speed

@@ -38,7 +38,8 @@ const movement = new MovementSystem();
 // The order of one tick:
 // 1. input - the arrow keys pressed/held since the last tick
 // 2. objects - enemy AI, particles, ...
-// 3. enemy tactics, rubber band - player and enemy pull on each other in combat
+// 3. enemy tactics (the player's shield follows at once), rubber band -
+//    player and enemy pull on each other in combat
 //    (a fighter holding a block is held in place right after)
 // 4. movement - everything that moves, one cell at a time
 // 5. combat - player/enemy encounter, initiative trail
@@ -53,6 +54,7 @@ function tick(dt) {
 
     if (gameStarted) {
         enemyTactics.update(dt);
+        alignShield();
         rubberBand.update(dt);
         holdBlockers();
 
@@ -234,7 +236,9 @@ function enemyFitsAt(x, y) {
 //   kills (killPlayer(), vanishEnemy()) - no matter whether that
 //   speed comes from a hit, the rubber band's pull or the player's
 //   own impulse. Slower, it just stops the speed. Walking steps
-//   (the player's) never kill.
+//   (the player's) never kill. Grace rule: after a successful
+//   fighting collision, the first such deadly hit only stops the
+//   fighter (see grantGrace()).
 // - Neither can step onto the other's cell - they fight by touching
 //   (see checkEnemyEncounter()), not by overlapping. Being blocked by
 //   the other's body leaves the speed alone: the encounter
@@ -278,7 +282,7 @@ function registerMovement() {
                 return;
             }
 
-            if (isFlying(player)) {
+            if (isFlying(player) && !useGrace(player)) {
                 killPlayer();
             }
             else {
@@ -309,7 +313,7 @@ function registerMovement() {
                 return;
             }
 
-            if (isFlying(enemy)) {
+            if (isFlying(enemy) && !useGrace(enemy)) {
                 vanishEnemy();
             }
             else {
@@ -372,8 +376,8 @@ function startGame() {
 // A fighter holding a block stands still: tick() stops it right
 // after the rubber band's pull.
 //
-// Initiative (see Initiative.js): the first fighter to take a stance
-// after a collision claims it - the player already with the start of
+// Initiative (see Initiative.js): the first fighter to take an attack
+// stance after a collision claims it (a block doesn't) - the player already with the start of
 // an attack set up. With Clash.ATTACK_RULE INITIATIVE it decides
 // attack against attack in different directions.
 // ==================================================
@@ -398,7 +402,10 @@ function setStance(fighter, kind, direction) {
     fighter.stance = new Stance(fighter, kind, direction);
     world.add(fighter.stance);
 
-    initiative.claim(fighter);
+    // Only an attack claims the initiative - a block doesn't.
+    if (kind === Stance.ATTACK) {
+        initiative.claim(fighter);
+    }
 }
 
 
@@ -471,6 +478,16 @@ function playerCombatStance() {
     }
 
     return null;
+}
+
+
+// Right after the enemy's choice in tick(): a raised shield turns to
+// the enemy's attack in the same tick, before any collision.
+function alignShield() {
+
+    if (isBlocking(player)) {
+        player.stance.direction = shieldDirection();
+    }
 }
 
 
@@ -574,7 +591,19 @@ function holdBlockers() {
 //
 // Every encounter deletes both stances and the player's set up; the
 // enemy picks anew (see EnemyTactics.reset()).
+//
+// Grace rule: a fighter whose encounter outcome is one of
+// GRACE_OUTCOMES (it wasn't pushed back) survives the first deadly
+// hit of the border/environment afterwards - it just stops. Its
+// bounce-off can't kill the winner. The next encounter grants or
+// takes the grace anew.
 // ==================================================
+
+// Clash outcomes that count as a successful collision.
+const GRACE_OUTCOMES = [Clash.FIRM, Clash.REFLECTED];
+
+// Burst where a fighter is saved by its grace.
+const GRACE_PARTICLE_COUNT = 4;
 
 // Cells per second added to a fighter's speed when it's pushed back.
 const PLAYER_PUSH_IMPULSE = 6;
@@ -754,6 +783,9 @@ function checkEnemyEncounter() {
     player.mover.knock(-enemySide * playerAway);
     enemy.mover.knock(enemySide * enemyAway);
 
+    grantGrace(player, clash.a);
+    grantGrace(enemy, clash.b);
+
     if (LOG_ENCOUNTERS) {
         logEncounter({
             playerStance: describeStance(playerStance, !player.stance),
@@ -766,9 +798,37 @@ function checkEnemyEncounter() {
 
     clearStance(player);
     cancelWindup();
+    playerController.spendBlock();
     clearStance(enemy);
     enemyTactics.reset();
     initiative.reset();
+}
+
+
+// Grace rule: after an encounter, `fighter` gets the saving throw if
+// its Clash `outcome` was successful, otherwise loses it.
+function grantGrace(fighter, outcome) {
+    fighter.grace = GRACE_OUTCOMES.includes(outcome);
+}
+
+
+// A deadly hit of the border/environment: true if `fighter` is saved
+// by its grace - which is used up then, with a small particle burst
+// (and a console line with LOG_ENCOUNTERS on).
+function useGrace(fighter) {
+
+    if (!fighter.grace) {
+        return false;
+    }
+
+    fighter.grace = false;
+    spawnParticles(fighter.x, fighter.y, GRACE_PARTICLE_COUNT);
+
+    if (LOG_ENCOUNTERS) {
+        console.log(`grace used: ${fighter === player ? "player" : "enemy"} saved at ${fighter.x},${fighter.y}`);
+    }
+
+    return true;
 }
 
 

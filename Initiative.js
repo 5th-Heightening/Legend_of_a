@@ -3,7 +3,8 @@
 // Clash.js).
 //
 // After a collision nobody holds it (reset()); the first fighter to
-// take a stance afterwards claims it (claim()). Shown as a MARK above
+// take an attack stance afterwards claims it (claim()) - a block
+// doesn't. Shown as a MARK above
 // the holder's head, glued to it via getters, so it moves along.
 // Hidden while nobody holds it or the holder is dead.
 //

@@ -19,6 +19,11 @@ class Player extends MovingObject {
         // startSquiggle()/stopSquiggle() in game.js.
         this.squiggle = null;
 
+        // Grace rule: one saving throw against a deadly hit of the
+        // border/environment after a successful collision - see
+        // grantGrace() in game.js.
+        this.grace = false;
+
         // Flips to false once a push carries it into the
         // environment/border - see killPlayer() in game.js.
         this.alive = true;

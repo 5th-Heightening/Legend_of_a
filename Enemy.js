@@ -35,6 +35,11 @@ class Enemy extends MovingObject {
         // EnemyTactics.js, set via setStance() in game.js.
         this.stance = null;
 
+        // Grace rule: one saving throw against a deadly hit of the
+        // border/environment after a successful collision - see
+        // grantGrace() in game.js.
+        this.grace = false;
+
         // Flips to false once knocked into the environment/border
         // - see vanishEnemy() in game.js.
         this.alive = true;

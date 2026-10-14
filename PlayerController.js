@@ -23,7 +23,8 @@
 //   player brakes (see Bracing.js) and, once stopped, takes the block
 //   stance (hooks.block()) - game.js puts it where it's needed. The
 //   arrows don't step meanwhile. Releasing the key drops the block
-//   (hooks.unblock()).
+//   (hooks.unblock()). A collision ends the bracing (spendBlock()):
+//   the key has to be released and pressed again to brace anew.
 // Otherwise up/down step as usual. Outside of combat A/D do nothing.
 //
 // The hooks are set in game.js, which owns the stances.
@@ -85,6 +86,10 @@ class PlayerController {
         // Holding the fence key away from the enemy in combat
         // (braking or blocking).
         this.bracing = false;
+
+        // Bracing ended by a collision while the key stays held - no
+        // new bracing until it's released.
+        this.blockSpent = false;
     }
 
 
@@ -163,6 +168,7 @@ class PlayerController {
         }
         else {
             this.stopBracing();
+            this.blockSpent = false;
             this.brake(dt, key ? PlayerController.DIRECTIONS[key].dx : 0);
         }
 
@@ -273,6 +279,11 @@ class PlayerController {
 
         if (!away) {
             this.stopBracing();
+            this.blockSpent = false;
+            return;
+        }
+
+        if (this.blockSpent) {
             return;
         }
 
@@ -286,6 +297,19 @@ class PlayerController {
         if (blocking || Bracing.brace(this.player, toward, dt)) {
             this.hooks.block();
         }
+    }
+
+
+    // A collision: the bracing ends (game.js has deleted the block
+    // already) and stays off until the key is pressed anew.
+    spendBlock() {
+
+        if (!this.bracing) {
+            return;
+        }
+
+        this.bracing = false;
+        this.blockSpent = true;
     }
 
 
