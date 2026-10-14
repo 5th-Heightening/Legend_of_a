@@ -9,8 +9,12 @@
 // - REFLECTED: bounces off with its own speed, turned around
 //
 // The rules:
-// - both attack: the losing direction (see Stance.BEATS) is pushed
-//   back; the same direction on both sides reflects both
+// - both attack, by ATTACK_RULE:
+//   - MATCH: the side `a` (the player) wins when both directions
+//     are the same, otherwise `b` (the enemy) wins - the loser is
+//     pushed back
+//   - CIRCLE: the losing direction (see Stance.BEATS) is pushed
+//     back; the same direction on both sides reflects both
 // - attack against block: the same direction reflects the attacker,
 //   a different one pushes the blocker back
 // - both block: both reflected
@@ -22,9 +26,15 @@ class Clash {
     static PUSHED = "pushed";
     static REFLECTED = "reflected";
 
+    // How attack against attack is decided - see the top of this file.
+    static MATCH = "match";
+    static CIRCLE = "circle";
+    static ATTACK_RULE = Clash.MATCH;
+
 
     // Returns { a, b, rule }: the outcome of each side, and which
-    // rule decided (for the encounter log).
+    // rule decided (for the encounter log). `a` is the player's
+    // stance, `b` the enemy's - with the MATCH rule the sides differ.
     static resolve(a, b) {
 
         if (!a && !b) {
@@ -40,6 +50,12 @@ class Clash {
         const attackA = a.kind === Stance.ATTACK;
         const attackB = b.kind === Stance.ATTACK;
         const same = a.direction === b.direction;
+
+        if (attackA && attackB && Clash.ATTACK_RULE === Clash.MATCH) {
+            return same
+                ? Clash.result(Clash.FIRM, Clash.PUSHED, "swords match, player wins")
+                : Clash.result(Clash.PUSHED, Clash.FIRM, "swords don't match, enemy wins");
+        }
 
         if (attackA && attackB) {
 
@@ -71,8 +87,8 @@ class Clash {
     }
 
 
-    // Does side `a` come out ahead of `b` - `b` pushed back, or `b`
-    // reflected while `a` stands firm?
+    // Does side `a` (the player's) come out ahead of `b` - `b` pushed
+    // back, or `b` reflected while `a` stands firm?
     static favors(a, b) {
         const { a: outcomeA, b: outcomeB } = Clash.resolve(a, b);
 

@@ -54,8 +54,9 @@ class Stance {
     }
 
 
-    static randomDirection() {
-        const names = Stance.DIRECTIONS;
+    // Any direction but `except`, if given.
+    static randomDirection(except = null) {
+        const names = Stance.DIRECTIONS.filter(name => name !== except);
         return names[Math.floor(Math.random() * names.length)];
     }
 

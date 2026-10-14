@@ -4,6 +4,8 @@
 //
 // After every collision (reset()) the enemy waits DECISION_DELAY,
 // then picks a stance (see choose()):
+// - with Clash.ATTACK_RULE MATCH: an attack from a random direction
+//   other than the player's - if the player shows a stance
 // - with COUNTER_CHANCE, one that wins against the player's current
 //   stance (see Clash.favors()) - if the player shows one
 // - otherwise an attack (ATTACK_CHANCE) or a block, in a random
@@ -23,7 +25,7 @@ class EnemyTactics {
 
     // Milliseconds.
     static DECISION_DELAY = 300;
-    static REACTION_DELAY = 250;
+    static REACTION_DELAY = 400; // 250;
     static BLOCK_DURATION = 1000;
 
     // 0..1.
@@ -128,6 +130,15 @@ class EnemyTactics {
 
 
     choose(playerStance) {
+
+        // MATCH rule: unmatched swords win for the enemy, so it always
+        // attacks from another direction than the player's.
+        if (playerStance && Clash.ATTACK_RULE === Clash.MATCH) {
+            return {
+                kind: Stance.ATTACK,
+                direction: Stance.randomDirection(playerStance.direction)
+            };
+        }
 
         if (playerStance && Math.random() < EnemyTactics.COUNTER_CHANCE) {
             const winners = Stance.OPTIONS.filter(option =>

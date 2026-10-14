@@ -307,10 +307,14 @@ an **attack** or a **block**, each from one of three directions —
 collision is decided by [Clash.js](Clash.js), see "Push". Every
 collision deletes all stances.
 
-The directions beat each other in a circle, like
-scissors-paper-rock (`Stance.BEATS`, winner → loser):
+Attack against attack is decided by `Clash.ATTACK_RULE`:
 
-`dash → above → below → dash`
+- **`Clash.MATCH`** (current): if both swords are in the same
+  position the player wins (enemy pushed back), otherwise the enemy
+  wins (player pushed back).
+- **`Clash.CIRCLE`**: the directions beat each other in a circle,
+  like scissors-paper-rock (`Stance.BEATS`, winner → loser):
+  `dash → above → below → dash`; the same direction reflects both.
 
 **`Stance`** ([Stance.js](Stance.js), `z = 25`) is drawn one cell in
 front of its owner (along `facing`), on the row of its direction
@@ -381,6 +385,8 @@ itself is never reassigned/replaced.
 collision (`reset()`) it waits `EnemyTactics.DECISION_DELAY` (300 ms),
 then chooses:
 
+- with the `MATCH` rule (see above): an attack from a random
+  direction other than the player's — if the player shows a stance;
 - with `COUNTER_CHANCE` (0.4), a stance that beats the player's
   current one (`Clash.favors()`: the player pushed back, or reflected
   while the enemy stands firm) — if the player shows a stance;
@@ -426,8 +432,8 @@ the other side:
 
 | Side A | Side B | Result |
 |---|---|---|
-| attack | attack, other direction | the losing direction (see `Stance.BEATS`) is pushed, the winner firm |
-| attack | attack, same direction | both reflected |
+| attack (player) | attack (enemy), same direction | `MATCH`: enemy pushed, player firm. `CIRCLE`: both reflected |
+| attack (player) | attack (enemy), other direction | `MATCH`: player pushed, enemy firm. `CIRCLE`: the losing direction (see `Stance.BEATS`) is pushed, the winner firm |
 | attack | block, same direction | attacker reflected, blocker firm |
 | attack | block, other direction | blocker pushed, attacker firm |
 | block | block | both reflected |
