@@ -15,16 +15,16 @@
 // holding it along rides it (steps on top of it, RIDE_FACTOR).
 //
 // In combat (see RubberBand.js) left/right don't step, and the player
-// keeps facing the enemy:
+// keeps facing the enemy. The FENCE_KEYS (A = left, D = right) fence:
 // - each fresh press toward the enemy is a charge: it adds
 //   COMBAT_IMPULSE to the player's speed once and takes the dash
 //   attack (hooks.charge())
-// - holding the arrow away from the enemy braces for a block: the
+// - holding the key away from the enemy braces for a block: the
 //   player brakes (see Bracing.js) and, once stopped, takes the block
-//   stance (hooks.block(direction)) - above while up is held, below
-//   while down is held, else dash. Up/down don't step meanwhile.
-//   Releasing the arrow drops the block (hooks.unblock()).
-// Otherwise up/down step as usual.
+//   stance (hooks.block()) - game.js puts it where it's needed. The
+//   arrows don't step meanwhile. Releasing the key drops the block
+//   (hooks.unblock()).
+// Otherwise up/down step as usual. Outside of combat A/D do nothing.
 //
 // The hooks are set in game.js, which owns the stances.
 class PlayerController {
@@ -34,6 +34,13 @@ class PlayerController {
         ArrowDown: { dx: 0, dy: 1 },
         ArrowLeft: { dx: -1, dy: 0 },
         ArrowRight: { dx: 1, dy: 0 }
+    };
+
+    // Combat keys (lower case) and their direction: a fresh press
+    // toward the enemy charges, holding one away from it blocks.
+    static FENCE_KEYS = {
+        a: -1,
+        d: 1
     };
 
     // Time between steps while an arrow is held.
@@ -61,44 +68,75 @@ class PlayerController {
         // between two ticks still counts.
         this.presses = [];
 
+        // The same two for the FENCE_KEYS.
+        this.heldFenceKeys = [];
+        this.fencePresses = [];
+
         // Time the current arrow has been held since its last step.
         this.holdTime = 0;
 
         // Set in game.js - decides when the player is in combat.
         this.rubberBand = null;
 
-        // Set in game.js: charge(), brace(), block(direction),
-        // unblock() - see fence().
+        // Set in game.js: charge(), brace(), block(), unblock() - see
+        // fence().
         this.hooks = null;
 
-        // Holding the arrow away from the enemy in combat (braking or
-        // blocking).
+        // Holding the fence key away from the enemy in combat
+        // (braking or blocking).
         this.bracing = false;
     }
 
 
+    // Arrow keys as they are, letters in lower case (Shift or Caps
+    // Lock don't matter).
+    static normalize(key) {
+        return key.length === 1 ? key.toLowerCase() : key;
+    }
+
+
+    // The held and freshly pressed lists `key` belongs to, or null.
+    lists(key) {
+
+        if (key in PlayerController.DIRECTIONS) {
+            return { held: this.heldArrows, presses: this.presses };
+        }
+
+        if (key in PlayerController.FENCE_KEYS) {
+            return { held: this.heldFenceKeys, presses: this.fencePresses };
+        }
+
+        return null;
+    }
+
+
     handles(key) {
-        return key in PlayerController.DIRECTIONS;
+        return this.lists(PlayerController.normalize(key)) !== null;
     }
 
 
     press(key, isRepeat) {
 
-        if (isRepeat || this.heldArrows.includes(key)) {
+        key = PlayerController.normalize(key);
+        const { held, presses } = this.lists(key);
+
+        if (isRepeat || held.includes(key)) {
             return;
         }
 
-        this.heldArrows.push(key);
-        this.presses.push(key);
+        held.push(key);
+        presses.push(key);
     }
 
 
     release(key) {
 
-        const index = this.heldArrows.indexOf(key);
+        key = PlayerController.normalize(key);
+        const { held } = this.lists(key);
+        const index = held.indexOf(key);
 
         if (index !== -1) {
-            this.heldArrows.splice(index, 1);
+            held.splice(index, 1);
         }
     }
 
@@ -107,26 +145,28 @@ class PlayerController {
     // still held - drop them, so the player doesn't keep walking.
     releaseAll() {
         this.heldArrows.length = 0;
+        this.heldFenceKeys.length = 0;
     }
 
 
     update(dt) {
 
         const presses = this.presses.splice(0);
+        const fencePresses = this.fencePresses.splice(0);
 
         const key = presses.at(-1) ?? this.heldArrows.at(-1);
         const mover = this.player.mover;
         const inCombat = this.rubberBand !== null && this.rubberBand.engaged();
 
         if (inCombat) {
-            this.fence(dt, presses);
+            this.fence(dt, fencePresses);
         }
         else {
             this.stopBracing();
             this.brake(dt, key ? PlayerController.DIRECTIONS[key].dx : 0);
         }
 
-        // Bracing: the arrows only pick the block - see fence().
+        // Bracing: the arrows don't step - see fence().
         if (this.bracing) {
             this.holdTime = 0;
             return;
@@ -139,7 +179,7 @@ class PlayerController {
 
         const { dx, dy } = PlayerController.DIRECTIONS[key];
 
-        // In combat left/right only change the speed - see fence().
+        // In combat left/right do nothing - A/D fence, see fence().
         if (inCombat && dx !== 0) {
             this.holdTime = 0;
             return;
@@ -207,9 +247,9 @@ class PlayerController {
     }
 
 
-    // Combat: a fresh press toward the enemy charges, holding the
-    // arrow away from it braces for a block - see the top of this
-    // file. The player turns toward the enemy.
+    // Combat: a fresh fence key press toward the enemy charges,
+    // holding the one away from it braces for a block - see the top
+    // of this file. The player turns toward the enemy.
     fence(dt, presses) {
 
         const toward = this.rubberBand.towardOther(this.player);
@@ -219,16 +259,16 @@ class PlayerController {
         }
 
         for (const key of presses) {
-            const { dx } = PlayerController.DIRECTIONS[key];
+            const dx = PlayerController.FENCE_KEYS[key];
 
-            if (dx !== 0 && dx === toward) {
+            if (dx === toward) {
                 this.player.mover.accelerate(dx * PlayerController.COMBAT_IMPULSE);
                 this.hooks.charge();
             }
         }
 
-        const away = toward !== 0 && this.heldArrows.some(key =>
-            PlayerController.DIRECTIONS[key].dx === -toward
+        const away = toward !== 0 && this.heldFenceKeys.some(key =>
+            PlayerController.FENCE_KEYS[key] === -toward
         );
 
         if (!away) {
@@ -244,28 +284,12 @@ class PlayerController {
         const blocking = this.player.stance !== null && this.player.stance.kind === Stance.BLOCK;
 
         if (blocking || Bracing.brace(this.player, toward, dt)) {
-            this.hooks.block(this.blockDirection());
+            this.hooks.block();
         }
     }
 
 
-    // The block the held arrows ask for: the most recently pressed of
-    // up/down, else dash.
-    blockDirection() {
-
-        for (let i = this.heldArrows.length - 1; i >= 0; i--) {
-            const { dy } = PlayerController.DIRECTIONS[this.heldArrows[i]];
-
-            if (dy !== 0) {
-                return dy < 0 ? "above" : "below";
-            }
-        }
-
-        return "dash";
-    }
-
-
-    // Lets go of the arrow away from the enemy (or leaves combat):
+    // Lets go of the key away from the enemy (or leaves combat):
     // the block, if taken, is dropped.
     stopBracing() {
 

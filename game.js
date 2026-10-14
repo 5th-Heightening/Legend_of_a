@@ -357,12 +357,13 @@ function startGame() {
 //   SwordWindup.js), then the attack stance is taken. It already
 //   counts during the set up. With an attack held, W/S switch its
 //   direction at once.
-// - a fresh arrow press toward the enemy (in combat) is a charge:
-//   the dash attack, plus an impulse (see PlayerController.js)
-// - holding the arrow away from the enemy (in combat) brakes; once
-//   stopped, the player takes the block - above/below while up/down
-//   is held, else dash. It lasts while the arrow is held; W/S do
-//   nothing meanwhile.
+// - in combat, A dashes left and D right: a fresh press toward the
+//   enemy is a charge - the dash attack, plus an impulse (see
+//   PlayerController.js)
+// - holding the other one (away from the enemy) brakes; once
+//   stopped, the player takes the block. The shield sits by itself
+//   where the enemy's attack comes from (see shieldDirection()). It
+//   lasts while the key is held; W/S do nothing meanwhile.
 //
 // The enemy picks its stances itself - see EnemyTactics.js.
 //
@@ -460,6 +461,25 @@ function playerCombatStance() {
 }
 
 
+// The player's shield is placed automatically: against the enemy's
+// attack, if it holds one; otherwise it stays where it is, or starts
+// at SHIELD_DEFAULT_DIRECTION.
+const SHIELD_DEFAULT_DIRECTION = "dash";
+
+function shieldDirection() {
+
+    if (enemy.stance && enemy.stance.kind === Stance.ATTACK) {
+        return enemy.stance.direction;
+    }
+
+    if (isBlocking(player)) {
+        return player.stance.direction;
+    }
+
+    return SHIELD_DEFAULT_DIRECTION;
+}
+
+
 playerController.hooks = {
 
     charge() {
@@ -476,8 +496,10 @@ playerController.hooks = {
         }
     },
 
-    block(direction) {
-        setStance(player, Stance.BLOCK, direction);
+    // Called every tick while blocking, so the shield follows the
+    // enemy's attack.
+    block() {
+        setStance(player, Stance.BLOCK, shieldDirection());
     },
 
     unblock() {
@@ -793,10 +815,10 @@ function spawnParticles(x, y, count, speed = PARTICLE_SPEED, gravitation = true)
 
 
 // ==================================================
-// Squiggle (D, held)
+// Squiggle (E, held)
 //
 // Decorative only - a string of random letters (see Squiggle.js)
-// grows from the player while "D" is held and vanishes on release.
+// grows from the player while "E" is held and vanishes on release.
 // Nothing collides with it.
 // ==================================================
 
@@ -826,7 +848,7 @@ function stopSquiggle() {
 // ==================================================
 // Input: title screen -> game, then play
 //
-// The key handlers only record input - arrow keys go to the
+// The key handlers only record input - arrow keys and A/D go to the
 // PlayerController, which acts on them on the next tick. Weapons are
 // created right away, but they too only count (and show) from the
 // next tick on.
@@ -858,7 +880,7 @@ document.addEventListener("keydown", event => {
         return;
     }
 
-    if (key === "d") {
+    if (key === "e") {
         startSquiggle();
         return;
     }
@@ -873,7 +895,7 @@ document.addEventListener("keyup", event => {
 
     const key = event.key.toLowerCase();
 
-    if (key === "d") {
+    if (key === "e") {
         stopSquiggle();
     }
 

@@ -26,7 +26,7 @@ by `SplashScreen.js`/`SpeechBubble.js` before this split:
 | [MovementSystem.js](MovementSystem.js) | Moves every registered `MovingObject` once per tick, one cell at a time, against per-object rules. |
 | [RubberBand.js](RubberBand.js) | Combat pull: player and enemy accelerate toward each other while in combat — see "Rubber band" below. |
 | [Player.js](Player.js) | Player state (`extends MovingObject`): facing, `stance` and attack set up. |
-| [PlayerController.js](PlayerController.js) | Arrow-key input → player steps / braking / charges / bracing for a block, sampled once per tick. |
+| [PlayerController.js](PlayerController.js) | Arrow-key and A/D input → player steps / braking / charges / bracing for a block, sampled once per tick. |
 | [Stance.js](Stance.js) | A fighter's attack or block (above, below, dash), drawn in front of its owner — see "Combat" below. |
 | [Clash.js](Clash.js) | Decides a collision from both stances (firm / pushed / reflected) — see "Push" below. |
 | [Bracing.js](Bracing.js) | Braking to a stop before a block, for player and enemy — see "Combat" below. |
@@ -36,7 +36,7 @@ by `SplashScreen.js`/`SpeechBubble.js` before this split:
 | [Enemy.js](Enemy.js) | Patrolling/combat enemy (`extends MovingObject`). |
 | [DeathJump.js](DeathJump.js) | Death feedback: a dying character's copy jumps up and falls out of the play area — see "Push" below. |
 | [Particle.js](Particle.js) | Short-lived drifting particle that decays through a random character sequence — see "Particles" below. |
-| [Squiggle.js](Squiggle.js) | Decorative random-letter string grown from the player while `D` is held — see "Squiggle" below. |
+| [Squiggle.js](Squiggle.js) | Decorative random-letter string grown from the player while `E` is held — see "Squiggle" below. |
 | [BlinkingText.js](BlinkingText.js) | The "Press any key" title-screen prompt. |
 | [SplashScreen.js](SplashScreen.js) | Title-screen logo. |
 | [theme.js](theme.js) | Light/dark mode toggle — entirely independent of the game, see "Theme toggle" below. |
@@ -166,7 +166,7 @@ One tick, in this order:
 
 Key handlers never move or render anything themselves. Arrow keys are
 only recorded (the controller acts on them on the next tick), and
-`W`/`S`/`D` create their objects right away, but those are drawn and
+`W`/`S`/`E` create their objects right away, but those are drawn and
 checked from the next tick on. Input is therefore at most one tick
 (40ms) late, and always on the beat.
 
@@ -331,19 +331,22 @@ The player's stances:
   only changes its direction; with an attack held, `W`/`S` switch
   its direction at once. Key auto-repeat is ignored. Ignored while
   bracing (below).
-- **Dash attack** (charge): in combat, every fresh arrow press
-  *toward* the enemy adds `PlayerController.COMBAT_IMPULSE` to the
+- **Dash attack** (charge): in combat, `A` dashes left and `D` right
+  (`PlayerController.FENCE_KEYS`; the left/right arrows do nothing in
+  combat, A/D nothing outside of it). Every fresh press *toward* the
+  enemy adds `PlayerController.COMBAT_IMPULSE` to the
   speed and takes the dash attack (`hooks.charge()`).
-- **Block**: in combat, holding the arrow *away* from the enemy
-  braces: an attack (or set up) is dropped, and the player brakes by
+- **Block**: in combat, holding the other fence key (*away* from the
+  enemy) braces: an attack (or set up) is dropped, and the player brakes by
   `Bracing.BRAKE` (60 cells/s², [Bracing.js](Bracing.js) — well above
   the rubber band's pull). A speed away from the enemy (after a push)
   isn't braked; the pull turns it around first. Once stopped, the
-  player takes the block: **above** while `ArrowUp` is held,
-  **below** while `ArrowDown` is held (the most recent one wins), else
-  **dash**. Up/down don't step while bracing, and switch the block's
-  direction at once while it's held. Releasing the arrow (or leaving
-  combat) drops the block.
+  player takes the block. The shield is placed automatically
+  (`shieldDirection()` in game.js, every tick): in the direction of
+  the enemy's attack stance; without one it stays where it is, or
+  starts at `SHIELD_DEFAULT_DIRECTION` (dash). The arrows don't step
+  while bracing. Releasing the key (or leaving combat) drops the
+  block.
 
 A fighter holding a block doesn't move: `holdBlockers()` stops its
 `Mover` every tick, right after the rubber band's pull.
@@ -564,7 +567,7 @@ Currently spawned in two places:
 
 ## Squiggle
 
-Holding `D` grows a `Squiggle` ([Squiggle.js](Squiggle.js), `z = 22`,
+Holding `E` grows a `Squiggle` ([Squiggle.js](Squiggle.js), `z = 22`,
 referenced as `player.squiggle`) from the tile right of the player:
 one random letter from `Squiggle.CHARACTERS` (`"=-~+"`) every
 `Squiggle.GROW_INTERVAL` (5ms), up to `Squiggle.MAX_LENGTH` (20).
@@ -575,7 +578,7 @@ changes (randomly one up, one down, or the same) on every
 `Squiggle.DY_STEP_EVERY` (2nd) letter. Every tick re-rolls
 the whole string (letters and path) at the new length; once it
 reaches `Squiggle.MAX_LENGTH` it keeps being re-rolled at that
-length, so it flickers for as long as `D` is held. It's glued to the player via getters
+length, so it flickers for as long as `E` is held. It's glued to the player via getters
 (it keeps its shape while the player moves) and is removed on
 `keyup`. Purely decorative — no collision check reads it, so it
 never affects combat. A missed `keyup` would leave it stuck on.
