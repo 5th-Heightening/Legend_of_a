@@ -19,7 +19,9 @@ class Particle {
 
     static FRAME_DURATION = 100; // 750;
 
-    constructor(x, y, speed, gravitation) {
+    // `sequence` (optional): the characters this particle decays
+    // through. Without one it picks a random entry of SEQUENCES.
+    constructor(x, y, speed, gravitation, sequence = null) {
 
         // Smooth (fractional) position - the renderer only takes
         // whole cells, so x/y below are the rounded view of these.
@@ -34,7 +36,7 @@ class Particle {
 
         this.gravitation = gravitation;
 
-        this.sequence = Particle.SEQUENCES[
+        this.sequence = sequence ?? Particle.SEQUENCES[
             Math.floor(Math.random() * Particle.SEQUENCES.length)
         ];
         this.index = 0;

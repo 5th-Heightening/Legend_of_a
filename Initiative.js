@@ -10,8 +10,8 @@
 //
 // The holder also leaves a particle trail behind it (spawned by
 // game.js, see leaveInitiativeTrail()): one row above it for an above
-// attack, one row below for a below attack, else on its own row - see
-// trailCell().
+// attack, one row below for a below attack (both in its own column),
+// else on its own row one cell behind it - see trailCell().
 class Initiative {
 
     static MARK = "!";
@@ -27,10 +27,26 @@ class Initiative {
         below: 1
     };
 
+    // Trail columns, in cells behind the holder, per attack direction
+    // (0 = the holder's own column). Any other stance (or none) trails
+    // TRAIL_BEHIND cells behind it.
+    static TRAIL_COLUMNS = {
+        above: 0,
+        below: 0
+    };
+    static TRAIL_BEHIND = 1;
+
     // Chance per tick to spawn one trail particle, and its speed
     // (cells per second).
     static TRAIL_DENSITY = 0.6;
     static TRAIL_SPEED = 1;
+
+    // Trail particle characters per attack direction (a swing). Any
+    // other stance (or none) uses Particle's default sequences.
+    static TRAIL_SEQUENCES = {
+        above: "|,",
+        below: "|'"
+    };
 
 
     constructor() {
@@ -64,7 +80,8 @@ class Initiative {
     }
 
 
-    // The cell behind the holder the trail starts from, given the
+    // The cell behind the holder the trail starts from, plus the
+    // particle sequence to use there (null = default), given the
     // holder's stance ({ kind, direction } or null) - or null while
     // not shown.
     trailCell(stance) {
@@ -73,14 +90,18 @@ class Initiative {
             return null;
         }
 
-        const behind = this.holder.facing === "left" ? 1 : -1;
+        const backwards = this.holder.facing === "left" ? 1 : -1;
+        let behind = Initiative.TRAIL_BEHIND;
         let dy = 0;
+        let sequence = null;
 
         if (stance && stance.kind === Stance.ATTACK) {
+            behind = Initiative.TRAIL_COLUMNS[stance.direction] ?? behind;
             dy = Initiative.TRAIL_ROWS[stance.direction] ?? 0;
+            sequence = Initiative.TRAIL_SEQUENCES[stance.direction] ?? null;
         }
 
-        return { x: this.holder.x + behind, y: this.holder.y + dy };
+        return { x: this.holder.x + backwards * behind, y: this.holder.y + dy, sequence };
     }
 
 
@@ -95,6 +116,8 @@ class Initiative {
 
 
     getAscii() {
+        // DEBUG: Show no mark, as the particle trail is already an indicator
+        return "";
         return this.shown() ? Initiative.MARK : "";
     }
 }

@@ -679,14 +679,14 @@ function leavePushTrace(x, y) {
 
 // Trail behind the fighter with the initiative (see Initiative.js):
 // with Initiative.TRAIL_DENSITY per tick, one slow particle on the
-// row of its attack.
+// row of its attack, drawn as that swing (Initiative.TRAIL_SEQUENCES).
 function leaveInitiativeTrail() {
 
     const stance = initiative.has(player) ? playerCombatStance() : enemy.stance;
     const cell = initiative.trailCell(stance);
 
     if (cell && Math.random() < Initiative.TRAIL_DENSITY) {
-        spawnParticles(cell.x, cell.y, 1, Initiative.TRAIL_SPEED, false);
+        spawnParticles(cell.x, cell.y, 1, Initiative.TRAIL_SPEED, false, cell.sequence);
     }
 }
 
@@ -908,11 +908,12 @@ const PARTICLE_SPEED = 6;
 
 
 // Spawns `count` particles at (x, y), each flying off in its own
-// random direction with its own random character sequence.
-function spawnParticles(x, y, count, speed = PARTICLE_SPEED, gravitation = true) {
+// random direction. They all decay through `sequence` if given, else
+// each through its own random one (see Particle.SEQUENCES).
+function spawnParticles(x, y, count, speed = PARTICLE_SPEED, gravitation = true, sequence = null) {
 
     for (let i = 0; i < count; i++) {
-        world.add(new Particle(x, y, speed, gravitation));
+        world.add(new Particle(x, y, speed, gravitation, sequence));
     }
 }
 
