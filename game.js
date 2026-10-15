@@ -109,21 +109,37 @@ const rubberBand = new RubberBand(player, enemy);
 playerController.rubberBand = rubberBand;
 enemy.rubberBand = rubberBand;
 
-const tree = new Tree({
-    topLeft: { x: 3, y: 3 },
-    topRight: { x: 30, y: 3 },
-    bottomLeft: { x: 6, y: 5 },
-    bottomRight: { x: 33, y: 5 }
-});
 
-const mountain = new Mountain({
-    topLeft: { x: 12, y: 0 },
-    topRight: { x: 20, y: 0 },
-    bottomLeft: { x: 10, y: 1 },
-    bottomRight: { x: 22, y: 1 }
-});
+// ==================================================
+// Levels
+//
+// The scenery comes from the current level (see Level.js and the
+// level files in levels/). parallaxObjects is always that level's
+// parts - what updateParallax() moves and what blocks movement.
+// ==================================================
 
-const parallaxObjects = [mountain, tree];
+const START_LEVEL_ID = "meadow";
+
+let currentLevel = null;
+let parallaxObjects = [];
+
+
+// Swaps the scenery of the current level for that of `level`.
+function loadLevel(level) {
+
+    for (const part of parallaxObjects) {
+        world.remove(part);
+    }
+
+    currentLevel = level;
+    parallaxObjects = level.parts;
+
+    for (const part of parallaxObjects) {
+        world.add(part);
+    }
+
+    updateParallax();
+}
 
 
 // Player movement is clamped to the viewport, since the
@@ -180,14 +196,15 @@ function makeCollisionProbe(source, x, y) {
 // Would the player collide with any environment part if it
 // stood at (px, py)? Each part's own position is predicted
 // for that same candidate spot, since the environment shifts
-// with the player (parallax).
-function wouldCollideAt(px, py) {
+// with the player (parallax). `parts` defaults to the current
+// level; checking an arrival spot passes the next level's.
+function wouldCollideAt(px, py, parts = parallaxObjects) {
 
     const { t, u } = parallaxCoordsFor(px, py);
 
     const playerProbe = makeCollisionProbe(player, px, py);
 
-    for (const object of parallaxObjects) {
+    for (const object of parts) {
 
         const { x, y } = object.interpolatePosition(t, u);
 
@@ -199,6 +216,66 @@ function wouldCollideAt(px, py) {
     }
 
     return false;
+}
+
+
+// Which edge of the play area (x, y) lies beyond - "left",
+// "right", "up", "down" - or null while it's inside. Movement goes
+// one axis at a time, so a step only ever crosses one edge.
+function exitSideAt(x, y) {
+
+    if (x < PLAYER_MIN_X) return "left";
+    if (x > PLAYER_MAX_X) return "right";
+    if (y < PLAYER_MIN_Y) return "up";
+    if (y > PLAYER_MAX_Y) return "down";
+
+    return null;
+}
+
+
+// Where the player lands in the next level after stepping out to
+// (x, y) over `side`: on the opposite edge, same row/column.
+function arrivalFor(side, x, y) {
+
+    switch (side) {
+        case "left":  return { x: PLAYER_MAX_X, y };
+        case "right": return { x: PLAYER_MIN_X, y };
+        case "up":    return { x, y: PLAYER_MAX_Y };
+        case "down":  return { x, y: PLAYER_MIN_Y };
+    }
+}
+
+
+// Can the player step out of the play area to (x, y)? Only over an
+// edge with an exit, and only if the arrival spot in the next level
+// is free - otherwise the edge blocks like a closed one.
+function canLeaveTo(x, y) {
+
+    const side = exitSideAt(x, y);
+    const next = currentLevel.exitTowards(side);
+
+    if (!next) {
+        return false;
+    }
+
+    const arrival = arrivalFor(side, x, y);
+
+    return !wouldCollideAt(arrival.x, arrival.y, next.parts) &&
+        !occupies(enemy, arrival.x, arrival.y);
+}
+
+
+// The player has stepped out over an edge (canLeaveTo() allowed
+// it): put it on the opposite edge and switch to the next level.
+function changeLevel() {
+
+    const side = exitSideAt(player.x, player.y);
+    const arrival = arrivalFor(side, player.x, player.y);
+
+    player.x = arrival.x;
+    player.y = arrival.y;
+
+    loadLevel(currentLevel.exitTowards(side));
 }
 
 
@@ -266,11 +343,14 @@ function registerMovement() {
 
     movement.add(player, {
 
-        canEnter: (x, y) =>
-            x >= PLAYER_MIN_X && x <= PLAYER_MAX_X &&
-            y >= PLAYER_MIN_Y && y <= PLAYER_MAX_Y &&
-            !wouldCollideAt(x, y) &&
-            !occupies(enemy, x, y),
+        canEnter: (x, y) => {
+
+            if (exitSideAt(x, y)) {
+                return canLeaveTo(x, y);
+            }
+
+            return !wouldCollideAt(x, y) && !occupies(enemy, x, y);
+        },
 
         // Only a step along the player's own speed counts - walking
         // into something (also sideways, or against the speed) just
@@ -297,6 +377,11 @@ function registerMovement() {
                 if (isFlying(player)) {
                     leavePushTrace(fromX, fromY);
                 }
+            }
+
+            if (exitSideAt(player.x, player.y)) {
+                changeLevel();
+                return;
             }
 
             updateParallax();
@@ -339,14 +424,14 @@ function startGame() {
     world.remove(pressAnyKey);
 
     world.add(ground);
-    world.add(mountain);
-    world.add(tree);
     world.add(enemy);
     world.add(player);
     world.add(initiative);
 
     registerMovement();
-    updateParallax();
+
+    Level.checkExits();
+    loadLevel(Level.get(START_LEVEL_ID));
 }
 
 
