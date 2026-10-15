@@ -42,6 +42,18 @@ class Stance {
 
     static MIRRORED = { "/": "\\", "\\": "/", "]": "[", "[": "]", "-": "-" };
 
+    // Set up of a swing (an attack with a trail sequence, see
+    // Initiative.TRAIL_SEQUENCES): the stance first shows that
+    // sequence backwards, one char per SETUP_STEP ms, before its own
+    // char. Meanwhile the trail only uses the part of the sequence
+    // revealed so far (see setupHidden). A direction change starts
+    // the set up over.
+    static SETUP_STEP = 150; // 60;
+
+    // Column of the set up chars, in cells in front of the owner
+    // (0 = straight above/below it). The finished stance is 1 in front.
+    static SETUP_DX = 0;
+
     // Every stance there is, as plain { kind, direction } - e.g. for
     // the enemy to pick from (see EnemyTactics.js).
     static OPTIONS = Stance.KINDS.flatMap(kind =>
@@ -66,8 +78,58 @@ class Stance {
     constructor(owner, kind, direction) {
         this.owner = owner;
         this.kind = kind;
-        this.direction = direction;
+        this._direction = direction;
         this.z = 25;
+
+        // Time (ms) since the set up started.
+        this.setupTime = 0;
+    }
+
+
+    get direction() {
+        return this._direction;
+    }
+
+
+    set direction(direction) {
+
+        if (direction !== this._direction) {
+            this.setupTime = 0;
+        }
+
+        this._direction = direction;
+    }
+
+
+    // The chars shown during the set up ("" = none for this stance).
+    // Looked up at runtime, as Initiative.js loads after this file.
+    get setupSequence() {
+
+        if (this.kind !== Stance.ATTACK) {
+            return "";
+        }
+
+        return Initiative.TRAIL_SEQUENCES[this.direction] ?? "";
+    }
+
+
+    // How many leading chars of setupSequence aren't revealed yet
+    // (0 once the set up is done).
+    get setupHidden() {
+        const step = Math.floor(this.setupTime / Stance.SETUP_STEP);
+        return Math.max(0, this.setupSequence.length - 1 - step);
+    }
+
+
+    get settingUp() {
+        return this.setupTime < this.setupSequence.length * Stance.SETUP_STEP;
+    }
+
+
+    update(dt) {
+        if (this.settingUp) {
+            this.setupTime += dt;
+        }
     }
 
 
@@ -76,8 +138,11 @@ class Stance {
     }
 
 
+    // In front of the owner - during the set up on its own column
+    // (SETUP_DX), straight above/below it.
     get x() {
-        return this.owner.x + this.facing;
+        const dx = this.settingUp ? Stance.SETUP_DX : 1;
+        return this.owner.x + this.facing * dx;
     }
 
 
@@ -93,7 +158,12 @@ class Stance {
 
 
     getAscii() {
+
+        if (this.settingUp) {
+            return this.setupSequence[this.setupHidden];
+        }
+
         const char = Stance.CHARS[this.kind][this.direction];
-        return this.facing < 0 ? Stance.MIRRORED[char] : char;
+        return this.facing < 0 ? Stance.MIRRORED[char] ?? char : char;
     }
 }

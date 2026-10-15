@@ -25,13 +25,12 @@ by `SplashScreen.js`/`SpeechBubble.js` before this split:
 | [MovingObject.js](MovingObject.js) | Base class for everything that moves (`Player`, `Enemy`): position + a `Mover`. |
 | [MovementSystem.js](MovementSystem.js) | Moves every registered `MovingObject` once per tick, one cell at a time, against per-object rules. |
 | [RubberBand.js](RubberBand.js) | Combat pull: player and enemy accelerate toward each other while in combat — see "Rubber band" below. |
-| [Player.js](Player.js) | Player state (`extends MovingObject`): facing, `stance` and attack set up. |
+| [Player.js](Player.js) | Player state (`extends MovingObject`): facing and `stance`. |
 | [PlayerController.js](PlayerController.js) | Arrow-key and A/D input → player steps / braking / charges / bracing for a block, sampled once per tick. |
 | [Stance.js](Stance.js) | A fighter's attack or block (above, below, dash), drawn in front of its owner — see "Combat" below. |
 | [Clash.js](Clash.js) | Decides a collision from both stances (firm / pushed / reflected) — see "Push" below. |
 | [Initiative.js](Initiative.js) | Which fighter has the initiative: `"!"` mark and particle trail — see "Combat" below. |
 | [Bracing.js](Bracing.js) | Braking to a stop before a block, for player and enemy — see "Combat" below. |
-| [SwordWindup.js](SwordWindup.js) | Short set up mark above/below the player before its above/below attack — see "Combat" below. |
 | [EnemyTactics.js](EnemyTactics.js) | Which stance the enemy takes in combat, and when — see "Enemy" below. |
 | [Ground.js](Ground.js) | Background floor plane. |
 | [Enemy.js](Enemy.js) | Patrolling/combat enemy (`extends MovingObject`). |
@@ -60,7 +59,7 @@ fails at the first `new` call, not at parse time:
    `ParallaxObject` to already exist.
 3. `Mover.js`, `MovingObject.js`, `MovementSystem.js`,
    `RubberBand.js`, then `Player.js`, `PlayerController.js`, `Stance.js`, `Clash.js`,
-   `Bracing.js`, `SwordWindup.js`, `EnemyTactics.js`, `Ground.js`, `Enemy.js`, `Squiggle.js`,
+   `Bracing.js`, `EnemyTactics.js`, `Ground.js`, `Enemy.js`, `Squiggle.js`,
    `BlinkingText.js`, `SplashScreen.js`. `MovingObject.js` must come
    before `Player.js`/`Enemy.js` (they `extends MovingObject`).
    `Mover.js` only needs to exist by the time something is
@@ -331,15 +330,19 @@ block above `"\"`, below `"/"`, dash `"]"` (so facing left, an
 upper block is `"/"` and a lower one `"\"`). A dash stance is on its owner's own row, so it
 adds reach (`combatParts()`); above/below don't.
 
+Swing set up: an above/below attack first shows its trail sequence
+(`Initiative.TRAIL_SEQUENCES`) backwards, one char per
+`Stance.SETUP_STEP` ms, before its own char; meanwhile the initiative
+trail only uses the part of the sequence shown so far
+(`Stance.setupHidden`). A direction change starts it over. Display
+only - the stance counts in a collision from the start.
+
 The player's stances:
 
-- **Attack above/below** (`W`/`S`): `drawSword(direction)` first shows a
-  set up ([SwordWindup.js](SwordWindup.js), `z = 26`, `"|"` straight
-  above/below the player) for `SwordWindup.DURATION`, then takes the
-  attack stance. The set up already counts as the attack in a
-  collision (`playerCombatStance()`). The other key during the set up
-  only changes its direction; with an attack held, `W`/`S` switch
-  its direction at once. Key auto-repeat is ignored. Ignored while
+- **Attack above/below** (`W`/`S`): `drawSword(direction)` takes the
+  attack stance at once. Like the enemy's, it first shows its set up
+  (see the swing set up below) - only a display, the stance counts
+  from the start. With an attack held, `W`/`S` switch its direction. Key auto-repeat is ignored. Ignored while
   bracing (below).
 - **Dash attack** (charge): in combat, `A` dashes left and `D` right
   (`PlayerController.FENCE_KEYS`; the left/right arrows do nothing in

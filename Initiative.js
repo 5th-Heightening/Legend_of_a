@@ -99,6 +99,12 @@ class Initiative {
             behind = Initiative.TRAIL_COLUMNS[stance.direction] ?? behind;
             dy = Initiative.TRAIL_ROWS[stance.direction] ?? 0;
             sequence = Initiative.TRAIL_SEQUENCES[stance.direction] ?? null;
+
+            // Mid set up only the part the stance shows so far (see
+            // Stance.setupHidden).
+            if (sequence && stance.setupHidden) {
+                sequence = sequence.slice(stance.setupHidden);
+            }
         }
 
         return { x: this.holder.x + backwards * behind, y: this.holder.y + dy, sequence };

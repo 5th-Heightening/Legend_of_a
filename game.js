@@ -359,10 +359,9 @@ function startGame() {
 // stances.
 //
 // The player:
-// - W/S attack from above/below. A short set up runs first (see
-//   SwordWindup.js), then the attack stance is taken. It already
-//   counts during the set up. With an attack held, W/S switch its
-//   direction at once.
+// - W/S attack from above/below, taken at once (its set up is only
+//   shown, see Stance.SETUP_STEP). With an attack held, W/S switch
+//   its direction.
 // - in combat, A dashes left and D right: a fresh press toward the
 //   enemy is a charge - the dash attack, plus an impulse (see
 //   PlayerController.js)
@@ -377,8 +376,7 @@ function startGame() {
 // after the rubber band's pull.
 //
 // Initiative (see Initiative.js): the first fighter to take an attack
-// stance after a collision claims it (a block doesn't) - the player already with the start of
-// an attack set up. With Clash.ATTACK_RULE INITIATIVE it decides
+// stance after a collision claims it (a block doesn't). With Clash.ATTACK_RULE INITIATIVE it decides
 // attack against attack in different directions.
 // ==================================================
 
@@ -425,59 +423,21 @@ function isBlocking(fighter) {
 }
 
 
-// W/S: an above/below attack, after the set up.
+// W/S: an above/below attack. Taken at once, with the same set up
+// display as the enemy's (see Stance.SETUP_STEP).
 function drawSword(direction) {
 
     if (!player.alive || playerController.bracing) {
         return;
     }
 
-    if (player.stance && player.stance.kind === Stance.ATTACK) {
-        player.stance.direction = direction;
-        return;
-    }
-
-    if (player.windup) {
-        player.windup.stance = direction;
-        return;
-    }
-
-    player.windup = new SwordWindup(player, direction, readyDirection => {
-        player.windup = null;
-        setStance(player, Stance.ATTACK, readyDirection);
-    });
-
-    world.add(player.windup);
-
-    initiative.claim(player);
+    setStance(player, Stance.ATTACK, direction);
 }
 
 
-// Drops the player's attack set up, if one is running.
-function cancelWindup() {
-
-    if (!player.windup) {
-        return;
-    }
-
-    world.remove(player.windup);
-    player.windup = null;
-}
-
-
-// The player's stance for a collision: the one held, or the attack
-// being set up (see SwordWindup.js) - as { kind, direction }, or null.
+// The player's stance for a collision, or null.
 function playerCombatStance() {
-
-    if (player.stance) {
-        return player.stance;
-    }
-
-    if (player.windup) {
-        return { kind: Stance.ATTACK, direction: player.windup.stance };
-    }
-
-    return null;
+    return player.stance;
 }
 
 
@@ -513,14 +473,11 @@ function shieldDirection() {
 playerController.hooks = {
 
     charge() {
-        cancelWindup();
         setStance(player, Stance.ATTACK, "dash");
     },
 
     // Starts braking for a block - an attack is dropped.
     brace() {
-        cancelWindup();
-
         if (player.stance && player.stance.kind === Stance.ATTACK) {
             clearStance(player);
         }
@@ -585,11 +542,10 @@ function holdBlockers() {
 // - pushed back: the closing speed, plus PLAYER_PUSH_IMPULSE /
 //   ENEMY_PUSH_IMPULSE
 // - reflected: its own speed, turned around (multiplied by -1)
-// The player's attack already counts while it's being set up (see
-// SwordWindup.js). With LOG_ENCOUNTERS on, every encounter is logged
+// With LOG_ENCOUNTERS on, every encounter is logged
 // to the console (see logEncounter()).
 //
-// Every encounter deletes both stances and the player's set up; the
+// Every encounter deletes both stances; the
 // enemy picks anew (see EnemyTactics.reset()).
 //
 // Grace rule: a fighter whose encounter outcome is one of
@@ -657,7 +613,6 @@ function killPlayer() {
     player.mover.stop();
 
     clearStance(player);
-    cancelWindup();
     stopSquiggle();
 
     world.remove(player);
@@ -788,8 +743,8 @@ function checkEnemyEncounter() {
 
     if (LOG_ENCOUNTERS) {
         logEncounter({
-            playerStance: describeStance(playerStance, !player.stance),
-            enemyStance: describeStance(enemyStance, false),
+            playerStance: describeStance(playerStance),
+            enemyStance: describeStance(enemyStance),
             clash,
             playerSpeed: playerAway,
             enemySpeed: enemyAway
@@ -797,7 +752,6 @@ function checkEnemyEncounter() {
     }
 
     clearStance(player);
-    cancelWindup();
     playerController.spendBlock();
     clearStance(enemy);
     enemyTactics.reset();
@@ -868,13 +822,13 @@ const LOG_ENCOUNTERS = true;
 
 
 // "attack above (set up)", "block dash", "none".
-function describeStance(stance, settingUp) {
+function describeStance(stance) {
 
     if (!stance) {
         return "none";
     }
 
-    return `${stance.kind} ${stance.direction}` + (settingUp ? " (set up)" : "");
+    return `${stance.kind} ${stance.direction}` + (stance.settingUp ? " (set up)" : "");
 }
 
 
