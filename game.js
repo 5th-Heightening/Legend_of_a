@@ -36,7 +36,7 @@ const movement = new MovementSystem();
 
 
 // The order of one tick:
-// 1. input - the arrow keys pressed/held since the last tick
+// 1. input - the left/right arrows pressed/held since the last tick
 // 2. objects - enemy AI, particles, ...
 // 3. enemy tactics (the player's shield follows at once), rubber band -
 //    player and enemy pull on each other in combat
@@ -444,16 +444,16 @@ function startGame() {
 // stances.
 //
 // The player:
-// - W/S attack from above/below, taken at once (its set up is only
-//   shown, see Stance.SETUP_STEP). With an attack held, W/S switch
-//   its direction.
-// - in combat, A dashes left and D right: a fresh press toward the
+// - ArrowUp/ArrowDown attack from above/below, taken at once (its set
+//   up is only shown, see Stance.SETUP_STEP). With an attack held,
+//   they switch its direction.
+// - in combat, ArrowLeft dashes left and ArrowRight right: a fresh press toward the
 //   enemy is a charge - the dash attack, plus an impulse (see
 //   PlayerController.js)
 // - holding the other one (away from the enemy) brakes; once
 //   stopped, the player takes the block. The shield sits by itself
 //   where the enemy's attack comes from (see shieldDirection()). It
-//   lasts while the key is held; W/S do nothing meanwhile.
+//   lasts while the key is held; up/down do nothing meanwhile.
 //
 // The enemy picks its stances itself - see EnemyTactics.js.
 //
@@ -508,7 +508,7 @@ function isBlocking(fighter) {
 }
 
 
-// W/S: an above/below attack. Taken at once, with the same set up
+// ArrowUp/ArrowDown: an above/below attack. Taken at once, with the same set up
 // display as the enemy's (see Stance.SETUP_STEP).
 function drawSword(direction) {
 
@@ -991,11 +991,17 @@ function stopSquiggle() {
 // ==================================================
 // Input: title screen -> game, then play
 //
-// The key handlers only record input - arrow keys and A/D go to the
-// PlayerController, which acts on them on the next tick. Weapons are
-// created right away, but they too only count (and show) from the
+// The key handlers only record input - the left/right arrows go to
+// the PlayerController, which acts on them on the next tick. Weapons
+// are created right away, but they too only count (and show) from the
 // next tick on.
 // ==================================================
+
+// Keys for the above/below attacks (see drawSword()).
+const SWORD_KEYS = {
+    ArrowUp: "above",
+    ArrowDown: "below"
+};
 
 document.addEventListener("keydown", event => {
 
@@ -1009,16 +1015,10 @@ document.addEventListener("keydown", event => {
 
     // Auto-repeat is ignored: a held key would keep making the enemy
     // react anew (see EnemyTactics.js).
-    if (key === "w") {
+    if (event.key in SWORD_KEYS) {
+        event.preventDefault();
         if (!event.repeat) {
-            drawSword("above");
-        }
-        return;
-    }
-
-    if (key === "s") {
-        if (!event.repeat) {
-            drawSword("below");
+            drawSword(SWORD_KEYS[event.key]);
         }
         return;
     }
@@ -1029,6 +1029,7 @@ document.addEventListener("keydown", event => {
     }
 
     if (playerController.handles(event.key)) {
+        event.preventDefault();
         playerController.press(event.key, event.repeat);
     }
 });

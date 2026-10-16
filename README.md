@@ -29,7 +29,7 @@ by `SplashScreen.js`/`SpeechBubble.js` before this split:
 | [MovementSystem.js](MovementSystem.js) | Moves every registered `MovingObject` once per tick, one cell at a time, against per-object rules. |
 | [RubberBand.js](RubberBand.js) | Combat pull: player and enemy accelerate toward each other while in combat — see "Rubber band" below. |
 | [Player.js](Player.js) | Player state (`extends MovingObject`): facing and `stance`. |
-| [PlayerController.js](PlayerController.js) | Arrow-key and A/D input → player steps / braking / charges / bracing for a block, sampled once per tick. |
+| [PlayerController.js](PlayerController.js) | Left/right arrow input → charges / bracing for a block, plus braking outside of combat, sampled once per tick. |
 | [Stance.js](Stance.js) | A fighter's attack or block (above, below, dash), drawn in front of its owner — see "Combat" below. |
 | [Clash.js](Clash.js) | Decides a collision from both stances (firm / pushed / reflected) — see "Push" below. |
 | [Initiative.js](Initiative.js) | Which fighter has the initiative: `"!"` mark and particle trail — see "Combat" below. |
@@ -156,9 +156,9 @@ counter and advances it in `update(dt)`.
 
 One tick, in this order:
 
-1. **Input** — `playerController.update(dt)` turns the arrow keys
-   pressed/held since the last tick into a queued step, brakes the
-   player's speed outside of combat, or adds a combat impulse (see
+1. **Input** — `playerController.update(dt)` turns the left/right
+   arrows pressed/held since the last tick into a charge or a block
+   in combat, or brakes the player's speed outside of it (see
    "Push").
 2. **Objects** — `world.update(dt)`: every object in the `World`
    ([World.js](World.js)) that has an `update(dt)` method runs it —
@@ -173,9 +173,9 @@ One tick, in this order:
    moved.
 6. **Draw** — `renderer.render()`, the only render call in the game.
 
-Key handlers never move or render anything themselves. Arrow keys are
-only recorded (the controller acts on them on the next tick), and
-`W`/`S`/`E` create their objects right away, but those are drawn and
+Key handlers never move or render anything themselves. The left/right
+arrows are only recorded (the controller acts on them on the next
+tick), and up/down/`E` create their objects right away, but those are drawn and
 checked from the next tick on. Input is therefore at most one tick
 (40ms) late, and always on the beat.
 
@@ -281,31 +281,19 @@ It's the pattern to copy for any other "blink/flash" effect.
 live in [game.js](game.js), not on `Player`, since they're really
 viewport bounds. They're enforced by the player's movement rules.
 
-**Held-key movement** ([PlayerController.js](PlayerController.js)):
-the key handlers only call `playerController.press(key, repeat)`/
-`release(key)`. The OS key auto-repeat is ignored. Once per tick,
-`update(dt)` looks at the arrows pressed since the last tick
-(`presses`) and the ones still held (`heldArrows`, press order):
+**No walking** ([PlayerController.js](PlayerController.js)): the
+player isn't moved by keys - only by its speed (pushes, charges, the
+rubber band). The key handlers only call
+`playerController.press(key, repeat)`/`release(key)` for the fence
+keys (`ArrowLeft`/`ArrowRight`). The OS key auto-repeat is ignored.
+Once per tick, `update(dt)` looks at the fence keys pressed since the
+last tick (`fencePresses`, so a tap pressed *and* released between two
+ticks still counts) and the ones still held (`heldFenceKeys`). A
+window `blur` drops all held keys, since no `keyup` would arrive for
+them.
 
-- a fresh press queues one step (`mover.queueStep`) on this tick
-- a held key queues another step every `PlayerController.MOVE_INTERVAL`
-  (120ms = 3 ticks)
-- the most recently pressed arrow is the direction; releasing it falls
-  back to the next one still held
-- a tap pressed *and* released between two ticks still counts
-- while pushed, the player keeps moving, except when holding the arrow
-  against the push (digging in, see "Push")
-
-A window `blur` drops all held arrows, since no `keyup` would arrive
-for them.
-
-`player.facing` is `"left"` or `"right"` (default `"right"`), set by
-the controller whenever `ArrowLeft`/`ArrowRight` is the active
-direction — `ArrowUp`/`Down` leave it untouched, and it updates even
-if the move itself is blocked by a collision, since it's about which
-way the player is turned, not whether they actually moved. While
-pushed, `facing` doesn't change, so the player stays turned toward
-where the push came from.
+`player.facing` is `"left"` or `"right"` (default `"right"`); in
+combat the controller turns it toward the enemy.
 
 ## Combat: attacks and blocks
 
@@ -350,14 +338,15 @@ only - the stance counts in a collision from the start.
 
 The player's stances:
 
-- **Attack above/below** (`W`/`S`): `drawSword(direction)` takes the
+- **Attack above/below** (`ArrowUp`/`ArrowDown`, `SWORD_KEYS` in
+  game.js): `drawSword(direction)` takes the
   attack stance at once. Like the enemy's, it first shows its set up
   (see the swing set up below) - only a display, the stance counts
-  from the start. With an attack held, `W`/`S` switch its direction. Key auto-repeat is ignored. Ignored while
+  from the start. With an attack held, up/down switch its direction. Key auto-repeat is ignored. Ignored while
   bracing (below).
-- **Dash attack** (charge): in combat, `A` dashes left and `D` right
-  (`PlayerController.FENCE_KEYS`; the left/right arrows do nothing in
-  combat, A/D nothing outside of it). Every fresh press *toward* the
+- **Dash attack** (charge): in combat, `ArrowLeft` dashes left and
+  `ArrowRight` right (`PlayerController.FENCE_KEYS`; they do nothing
+  outside of combat). Every fresh press *toward* the
   enemy adds `PlayerController.COMBAT_IMPULSE` to the
   speed and takes the dash attack (`hooks.charge()`).
 - **Block**: in combat, holding the other fence key (*away* from the
@@ -368,8 +357,7 @@ The player's stances:
   player takes the block. The shield is placed automatically
   (`shieldDirection()` in game.js, every tick): in the direction of
   the enemy's attack stance; without one it stays where it is, or
-  starts at `SHIELD_DEFAULT_DIRECTION` (dash). The arrows don't step
-  while bracing. Releasing the key (or leaving combat) drops the
+  starts at `SHIELD_DEFAULT_DIRECTION` (dash). Releasing the key (or leaving combat) drops the
   block. `alignShield()` runs right after the enemy's choice every
   tick, so the shield already faces a new enemy attack in the same
   tick's collision. A collision ends the bracing
@@ -544,18 +532,9 @@ the player).
 - Outside of combat the speed brakes toward 0:
   - Enemy: see "Enemy" — `Enemy.BRAKE` (20 cells/s²) until it can
     patrol again.
-  - Player (balance, not control): the player keeps moving and
-    steering. `PlayerController.brake()` takes
-    `PlayerController.BRAKE` (10 cells/s²) off, scaled by the active
-    arrow:
-    - no arrow / up / down: normal pace; up/down step as usual
-    - against the speed (**digging in**):
-      `PlayerController.DIG_IN_FACTOR` (4) times harder, and the
-      player doesn't step
-    - along the speed (**riding it**): `PlayerController.RIDE_FACTOR`
-      (1), and the player steps on top of it
-
-    It's time-based on the held key, so mashing gives no advantage.
+  - Player: `PlayerController.brake()` takes
+    `PlayerController.BRAKE` (10 cells/s²) off. The player doesn't
+    walk, so no key changes this.
 
 Known gaps / deliberate simplifications:
 
