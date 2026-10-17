@@ -38,9 +38,8 @@ const movement = new MovementSystem();
 // The order of one tick:
 // 1. input - the arrow keys pressed/held since the last tick
 // 2. objects - enemy AI, particles, ...
-// 3. enemy tactics (the player's shield follows at once), rubber band -
-//    player and enemy pull on each other in combat
-//    (a fighter holding a block is held in place right after)
+// 3. enemy tactics, then every attacker heads for the other one at
+//    its constant speed
 // 4. movement - everything that moves, one cell at a time
 // 5. combat - player/enemy encounter, initiative trail
 // 6. draw
@@ -54,9 +53,7 @@ function tick(dt) {
 
     if (gameStarted) {
         enemyTactics.update(dt);
-        alignShield();
-        rubberBand.update(dt);
-        holdBlockers();
+        steerAttackers();
 
         movement.update(dt);
         checkEnemyEncounter();
@@ -104,7 +101,9 @@ const playerController = new PlayerController(player);
 
 const enemy = new Enemy(ENEMY_START_X, START_ROW, 5, 35, player);
 
-// In combat, player and enemy pull on each other - see RubberBand.js.
+// Decides when the two are in combat - see RubberBand.engaged(). Its
+// pull isn't used: in combat the speed is constant (see "Combat"
+// below).
 const rubberBand = new RubberBand(player, enemy);
 playerController.rubberBand = rubberBand;
 enemy.rubberBand = rubberBand;
@@ -311,8 +310,7 @@ function enemyFitsAt(x, y) {
 // - Enemy: stays inside the display and is blocked by scenery.
 // - Both: running into the border/scenery at LETHAL_SPEED or more
 //   kills (killPlayer(), vanishEnemy()) - no matter whether that
-//   speed comes from a hit, the rubber band's pull or the player's
-//   own impulse. Slower, it just stops the speed. Walking steps
+//   speed comes from a hit or an attack. Slower, it just stops the speed. Walking steps
 //   (the player's) never kill. Grace rule: after a successful
 //   fighting collision, the first such deadly hit only stops the
 //   fighter (see grantGrace()).
@@ -436,59 +434,63 @@ function startGame() {
 
 
 // ==================================================
-// Combat: stances - attacks and blocks (see Stance.js)
+// Combat: attack stances (see Stance.js)
 //
-// Each fighter holds at most one stance: an attack or a block, from
-// above, below or as a dash. Who wins a collision is decided by
-// Clash.js (see checkEnemyEncounter()); every collision deletes all
-// stances.
+// The speed is constant: nothing accelerates or brakes a fighter in
+// combat. It only changes at once, to one of:
+// - ATTACK_SPEED toward the other fighter, while it holds an attack
+//   stance (see steerAttackers()) - also when the other one moves
+//   past it, one row apart
+// - 0, or PUSH_SPEED away from the other one - after a collision
+//   (see checkEnemyEncounter())
+// - 0, after running into something too slowly to die (see the
+//   movement rules)
+// Outside of combat the old braking still applies (see
+// PlayerController.brake(), Enemy.update()).
+//
+// Each fighter holds at most one stance: an attack from above, below
+// or as a dash. Every collision deletes both stances.
 //
 // The player:
-// - W/S attack from above/below, taken at once (its set up is only
-//   shown, see Stance.SETUP_STEP). With an attack held, W/S switch
-//   its direction.
-// - in combat, A dashes left and D right: a fresh press toward the
-//   enemy is a charge - the dash attack, plus an impulse (see
+// - W/S attack from above/below
+// - in combat, A/D toward the enemy: the dash attack (see
 //   PlayerController.js)
-// - holding the other one (away from the enemy) brakes; once
-//   stopped, the player takes the block. The shield sits by itself
-//   where the enemy's attack comes from (see shieldDirection()). It
-//   lasts while the key is held; W/S do nothing meanwhile.
+// Taking a stance - or switching to another direction - makes the
+// player the later one (see Initiative.js); taking the same one again
+// changes nothing.
 //
-// The enemy picks its stances itself - see EnemyTactics.js.
-//
-// A fighter holding a block stands still: tick() stops it right
-// after the rubber band's pull.
-//
-// Initiative (see Initiative.js): the first fighter to take an attack
-// stance after a collision claims it (a block doesn't). With Clash.ATTACK_RULE INITIATIVE it decides
-// attack against attack in different directions.
+// The enemy takes its stance EnemyTactics.STANCE_DELAY after every
+// collision - see EnemyTactics.js.
 // ==================================================
+
+// Cells per second.
+const ATTACK_SPEED = 8;
 
 const initiative = new Initiative();
 
-// Takes the stance `kind` from `direction` - an existing one of the
-// same kind just changes its direction.
-function setStance(fighter, kind, direction) {
+// Takes an attack stance from `direction`. An existing stance just
+// changes its direction. Either way the fighter is the later one now,
+// unless the stance stays as it is.
+function setStance(fighter, direction) {
 
     if (fighter.alive === false) {
         return;
     }
 
-    if (fighter.stance && fighter.stance.kind === kind) {
+    if (fighter.stance) {
+
+        if (fighter.stance.direction === direction) {
+            return;
+        }
+
         fighter.stance.direction = direction;
-        return;
+    }
+    else {
+        fighter.stance = new Stance(fighter, Stance.ATTACK, direction);
+        world.add(fighter.stance);
     }
 
-    clearStance(fighter);
-
-    fighter.stance = new Stance(fighter, kind, direction);
-    world.add(fighter.stance);
-
-    // Only an attack claims the initiative - a block doesn't.
-    if (kind === Stance.ATTACK) {
-        initiative.claim(fighter);
-    }
+    initiative.claim(fighter);
 }
 
 
@@ -503,20 +505,14 @@ function clearStance(fighter) {
 }
 
 
-function isBlocking(fighter) {
-    return fighter.stance !== null && fighter.stance.kind === Stance.BLOCK;
-}
-
-
-// W/S: an above/below attack. Taken at once, with the same set up
-// display as the enemy's (see Stance.SETUP_STEP).
+// W/S: an above/below attack.
 function drawSword(direction) {
 
-    if (!player.alive || playerController.bracing) {
+    if (!player.alive) {
         return;
     }
 
-    setStance(player, Stance.ATTACK, direction);
+    setStance(player, direction);
 }
 
 
@@ -526,86 +522,41 @@ function playerCombatStance() {
 }
 
 
-// Right after the enemy's choice in tick(): a raised shield turns to
-// the enemy's attack in the same tick, before any collision.
-function alignShield() {
-
-    if (isBlocking(player)) {
-        player.stance.direction = shieldDirection();
-    }
-}
-
-
-// The player's shield is placed automatically: against the enemy's
-// attack, if it holds one; otherwise it stays where it is, or starts
-// at SHIELD_DEFAULT_DIRECTION.
-const SHIELD_DEFAULT_DIRECTION = "dash";
-
-function shieldDirection() {
-
-    if (enemy.stance && enemy.stance.kind === Stance.ATTACK) {
-        return enemy.stance.direction;
-    }
-
-    if (isBlocking(player)) {
-        return player.stance.direction;
-    }
-
-    return SHIELD_DEFAULT_DIRECTION;
-}
-
-
 playerController.hooks = {
 
     charge() {
-        setStance(player, Stance.ATTACK, "dash");
-    },
-
-    // Starts braking for a block - an attack is dropped.
-    brace() {
-        if (player.stance && player.stance.kind === Stance.ATTACK) {
-            clearStance(player);
-        }
-    },
-
-    // Called every tick while blocking, so the shield follows the
-    // enemy's attack.
-    block() {
-        setStance(player, Stance.BLOCK, shieldDirection());
-    },
-
-    unblock() {
-        if (isBlocking(player)) {
-            clearStance(player);
-        }
+        setStance(player, "dash");
     }
 };
 
 
-const enemyTactics = new EnemyTactics(enemy, rubberBand, playerCombatStance, initiative, {
+const enemyTactics = new EnemyTactics(enemy, rubberBand, {
 
     attack(direction) {
-        setStance(enemy, Stance.ATTACK, direction);
-    },
-
-    block(direction) {
-        setStance(enemy, Stance.BLOCK, direction);
-    },
-
-    drop() {
-        clearStance(enemy);
+        setStance(enemy, direction);
     }
 });
 
 
-// Called in tick() right after the rubber band: a fighter holding a
-// block doesn't move.
-function holdBlockers() {
+// Called in tick() before movement: in combat, a fighter with an
+// attack stance heads for the other one at ATTACK_SPEED. In the same
+// column (one row apart) it keeps its direction.
+function steerAttackers() {
+
+    if (!rubberBand.engaged()) {
+        return;
+    }
 
     for (const fighter of [player, enemy]) {
-        if (isBlocking(fighter)) {
-            fighter.mover.stop();
+
+        if (!fighter.stance) {
+            continue;
         }
+
+        const toward = rubberBand.towardOther(fighter);
+        const direction = toward || Math.sign(fighter.velocityX);
+
+        fighter.mover.setVelocity(direction * ATTACK_SPEED, fighter.mover.velocityY);
     }
 }
 
@@ -615,46 +566,32 @@ function holdBlockers() {
 //
 // Both have one horizontal speed (see Mover.js) and nothing else - a
 // push is just that speed pointing away from the other. Every
-// encounter recalculates both speeds from the current ones. In
-// combat the rubber band then brakes them and pulls both back
-// together (see RubberBand.js); outside of combat they brake (see
-// PlayerController.js, Enemy.update()).
+// encounter sets both speeds anew, from both stances (see Clash.js):
+// - stopped: 0
+// - pushed back: PLAYER_PUSH_SPEED / ENEMY_PUSH_SPEED away from the
+//   other - and that stays, until it takes a stance again or runs
+//   into something
+// With LOG_ENCOUNTERS on, every encounter is logged to the console
+// (see logEncounter()).
 //
-// Each side's speed toward the other at the moment of contact adds
-// up to the closing speed. Both stances decide (see Clash.js) what
-// each side gets, as a speed away from the other:
-// - stands firm: 0
-// - pushed back: the closing speed, plus PLAYER_PUSH_IMPULSE /
-//   ENEMY_PUSH_IMPULSE
-// - reflected: its own speed, turned around (multiplied by -1)
-// With LOG_ENCOUNTERS on, every encounter is logged
-// to the console (see logEncounter()).
-//
-// Every encounter deletes both stances; the
-// enemy picks anew (see EnemyTactics.reset()).
+// Every encounter deletes both stances and the initiative; the enemy
+// takes a new stance after a short while (see EnemyTactics.reset()).
 //
 // Grace rule: a fighter whose encounter outcome is one of
-// GRACE_OUTCOMES (it wasn't pushed back) survives the first deadly
-// hit of the border/environment afterwards - it just stops. Its
-// bounce-off can't kill the winner. The next encounter grants or
-// takes the grace anew.
+// GRACE_OUTCOMES survives the first deadly hit of the
+// border/environment afterwards - it just stops. The next encounter
+// grants or takes the grace anew.
 // ==================================================
 
 // Clash outcomes that count as a successful collision.
-const GRACE_OUTCOMES = [Clash.FIRM, Clash.REFLECTED];
+const GRACE_OUTCOMES = [Clash.STOPPED];
 
 // Burst where a fighter is saved by its grace.
 const GRACE_PARTICLE_COUNT = 4;
 
-// Cells per second added to a fighter's speed when it's pushed back.
-const PLAYER_PUSH_IMPULSE = 6;
-const ENEMY_PUSH_IMPULSE = 0;
-
-// Cells per second added to everyone who bounces off in an
-// encounter (anyone who stands firm keeps 0). Makes up for the speed
-// the fixed tick loses on every bounce, so a fight doesn't slowly
-// die down.
-const ENCOUNTER_PUSH = 2*3; // 2;
+// Cells per second away from the other one, when pushed back.
+const PLAYER_PUSH_SPEED = 12;
+const ENEMY_PUSH_SPEED = 12;
 
 // Burst spawned where the player and enemy collide, and the
 // (slower) speed of the trace particles a pushed player/enemy
@@ -811,14 +748,10 @@ function checkEnemyEncounter() {
 
     const playerStance = playerCombatStance();
     const enemyStance = enemy.stance;
-    const clash = Clash.resolve(playerStance, enemyStance, initiativeSide());
+    const clash = Clash.resolve(playerStance, enemyStance, laterSide());
 
-    const playerAway = withEncounterPush(
-        awaySpeed(clash.a, closing, playerApproach, PLAYER_PUSH_IMPULSE)
-    );
-    const enemyAway = withEncounterPush(
-        awaySpeed(clash.b, closing, enemyApproach, ENEMY_PUSH_IMPULSE)
-    );
+    const playerAway = awaySpeed(clash.a, PLAYER_PUSH_SPEED);
+    const enemyAway = awaySpeed(clash.b, ENEMY_PUSH_SPEED);
 
     player.mover.knock(-enemySide * playerAway);
     enemy.mover.knock(enemySide * enemyAway);
@@ -837,7 +770,6 @@ function checkEnemyEncounter() {
     }
 
     clearStance(player);
-    playerController.spendBlock();
     clearStance(enemy);
     enemyTactics.reset();
     initiative.reset();
@@ -871,8 +803,9 @@ function useGrace(fighter) {
 }
 
 
-// Who holds the initiative, as Clash.resolve() wants it.
-function initiativeSide() {
+// Who has taken its stance later (holds the initiative), as
+// Clash.resolve() wants it.
+function laterSide() {
 
     if (initiative.has(player)) {
         return Clash.SIDE_A;
@@ -887,18 +820,9 @@ function initiativeSide() {
 
 
 // A side's speed away from the other after the encounter, from its
-// Clash outcome. `approach` is its own speed toward the other before.
-function awaySpeed(outcome, closing, approach, pushImpulse) {
-
-    if (outcome === Clash.PUSHED) {
-        return closing + pushImpulse;
-    }
-
-    if (outcome === Clash.REFLECTED) {
-        return approach;
-    }
-
-    return 0;
+// Clash outcome.
+function awaySpeed(outcome, pushSpeed) {
+    return outcome === Clash.PUSHED ? pushSpeed : 0;
 }
 
 
@@ -906,7 +830,7 @@ function awaySpeed(outcome, closing, approach, pushImpulse) {
 const LOG_ENCOUNTERS = true;
 
 
-// "attack above (set up)", "block dash", "none".
+// "attack above (set up)", "attack dash", "none".
 function describeStance(stance) {
 
     if (!stance) {
@@ -924,13 +848,6 @@ function logEncounter(e) {
         ` | ${e.clash.rule}: player ${e.clash.a}, enemy ${e.clash.b}` +
         ` | speeds away: player ${e.playerSpeed.toFixed(1)}, enemy ${e.enemySpeed.toFixed(1)} cells/s`
     );
-}
-
-
-// A speed away from the other side, plus ENCOUNTER_PUSH if it
-// bounces off at all.
-function withEncounterPush(away) {
-    return away > 0 ? away + ENCOUNTER_PUSH : away;
 }
 
 

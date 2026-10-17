@@ -1,10 +1,10 @@
-// Which fighter has the initiative. With Clash.ATTACK_RULE INITIATIVE
-// it decides attack against attack in different directions (see
-// Clash.js).
+// Which fighter has the initiative: the one that has taken its stance
+// later (claim()) - it wins a collision with both stances the same
+// (see Clash.js).
 //
-// After a collision nobody holds it (reset()); the first fighter to
-// take an attack stance afterwards claims it (claim()) - a block
-// doesn't. Shown as a MARK above
+// After a collision nobody holds it (reset()); every stance taken
+// afterwards (also a change of direction) hands it to the one taking
+// it. Shown as a MARK above
 // the holder's head, glued to it via getters, so it moves along.
 // Hidden while nobody holds it or the holder is dead.
 //
@@ -60,12 +60,9 @@ class Initiative {
     }
 
 
-    // `fighter` takes a stance: it gets the initiative, unless someone
-    // holds it already.
+    // `fighter` takes a stance: it's the later one now.
     claim(fighter) {
-        if (this.holder === null) {
-            this.holder = fighter;
-        }
+        this.holder = fighter;
     }
 
 

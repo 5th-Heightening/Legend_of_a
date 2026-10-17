@@ -14,18 +14,13 @@
 // against it digs in (no step, brakes DIG_IN_FACTOR times harder),
 // holding it along rides it (steps on top of it, RIDE_FACTOR).
 //
-// In combat (see RubberBand.js) left/right don't step, and the player
-// keeps facing the enemy. The FENCE_KEYS (A = left, D = right) fence:
-// - each fresh press toward the enemy is a charge: it adds
-//   COMBAT_IMPULSE to the player's speed once and takes the dash
-//   attack (hooks.charge())
-// - holding the key away from the enemy braces for a block: the
-//   player brakes (see Bracing.js) and, once stopped, takes the block
-//   stance (hooks.block()) - game.js puts it where it's needed. The
-//   arrows don't step meanwhile. Releasing the key drops the block
-//   (hooks.unblock()). A collision ends the bracing (spendBlock()):
-//   the key has to be released and pressed again to brace anew.
-// Otherwise up/down step as usual. Outside of combat A/D do nothing.
+// In combat (see RubberBand.engaged()) left/right don't step, and
+// the player keeps facing the enemy. The speed isn't the player's to
+// change there - it follows the stance (see steerAttackers() in
+// game.js). Of the FENCE_KEYS (A = left, D = right), a fresh press
+// toward the enemy takes the dash attack (hooks.charge()); the other
+// one does nothing. Up/down step as usual. Outside of combat A/D do
+// nothing.
 //
 // The hooks are set in game.js, which owns the stances.
 class PlayerController {
@@ -38,7 +33,7 @@ class PlayerController {
     };
 
     // Combat keys (lower case) and their direction: a fresh press
-    // toward the enemy charges, holding one away from it blocks.
+    // toward the enemy takes the dash attack.
     static FENCE_KEYS = {
         a: -1,
         d: 1
@@ -52,9 +47,6 @@ class PlayerController {
     static BRAKE = 10;
     static DIG_IN_FACTOR = 4;
     static RIDE_FACTOR = 1;
-
-    // Speed (cells per second) one left/right press adds in combat.
-    static COMBAT_IMPULSE = 4;
 
 
     constructor(player) {
@@ -79,17 +71,8 @@ class PlayerController {
         // Set in game.js - decides when the player is in combat.
         this.rubberBand = null;
 
-        // Set in game.js: charge(), brace(), block(), unblock() - see
-        // fence().
+        // Set in game.js: charge() - see fence().
         this.hooks = null;
-
-        // Holding the fence key away from the enemy in combat
-        // (braking or blocking).
-        this.bracing = false;
-
-        // Bracing ended by a collision while the key stays held - no
-        // new bracing until it's released.
-        this.blockSpent = false;
     }
 
 
@@ -164,18 +147,10 @@ class PlayerController {
         const inCombat = this.rubberBand !== null && this.rubberBand.engaged();
 
         if (inCombat) {
-            this.fence(dt, fencePresses);
+            this.fence(fencePresses);
         }
         else {
-            this.stopBracing();
-            this.blockSpent = false;
             this.brake(dt, key ? PlayerController.DIRECTIONS[key].dx : 0);
-        }
-
-        // Bracing: the arrows don't step - see fence().
-        if (this.bracing) {
-            this.holdTime = 0;
-            return;
         }
 
         if (!key) {
@@ -253,10 +228,9 @@ class PlayerController {
     }
 
 
-    // Combat: a fresh fence key press toward the enemy charges,
-    // holding the one away from it braces for a block - see the top
-    // of this file. The player turns toward the enemy.
-    fence(dt, presses) {
+    // Combat: a fresh fence key press toward the enemy takes the dash
+    // attack. The player turns toward the enemy.
+    fence(presses) {
 
         const toward = this.rubberBand.towardOther(this.player);
 
@@ -265,63 +239,9 @@ class PlayerController {
         }
 
         for (const key of presses) {
-            const dx = PlayerController.FENCE_KEYS[key];
-
-            if (dx === toward) {
-                this.player.mover.accelerate(dx * PlayerController.COMBAT_IMPULSE);
+            if (PlayerController.FENCE_KEYS[key] === toward) {
                 this.hooks.charge();
             }
         }
-
-        const away = toward !== 0 && this.heldFenceKeys.some(key =>
-            PlayerController.FENCE_KEYS[key] === -toward
-        );
-
-        if (!away) {
-            this.stopBracing();
-            this.blockSpent = false;
-            return;
-        }
-
-        if (this.blockSpent) {
-            return;
-        }
-
-        if (!this.bracing) {
-            this.bracing = true;
-            this.hooks.brace();
-        }
-
-        const blocking = this.player.stance !== null && this.player.stance.kind === Stance.BLOCK;
-
-        if (blocking || Bracing.brace(this.player, toward, dt)) {
-            this.hooks.block();
-        }
-    }
-
-
-    // A collision: the bracing ends (game.js has deleted the block
-    // already) and stays off until the key is pressed anew.
-    spendBlock() {
-
-        if (!this.bracing) {
-            return;
-        }
-
-        this.bracing = false;
-        this.blockSpent = true;
-    }
-
-
-    // Lets go of the key away from the enemy (or leaves combat):
-    // the block, if taken, is dropped.
-    stopBracing() {
-
-        if (!this.bracing) {
-            return;
-        }
-
-        this.bracing = false;
-        this.hooks.unblock();
     }
 }

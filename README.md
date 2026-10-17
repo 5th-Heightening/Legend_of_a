@@ -27,14 +27,13 @@ by `SplashScreen.js`/`SpeechBubble.js` before this split:
 | [levels/](levels/) | The level files, one per level (`meadow.js`, `forest.js`). Data only. |
 | [MovingObject.js](MovingObject.js) | Base class for everything that moves (`Player`, `Enemy`): position + a `Mover`. |
 | [MovementSystem.js](MovementSystem.js) | Moves every registered `MovingObject` once per tick, one cell at a time, against per-object rules. |
-| [RubberBand.js](RubberBand.js) | Combat pull: player and enemy accelerate toward each other while in combat — see "Rubber band" below. |
+| [RubberBand.js](RubberBand.js) | Decides when the two are in combat (its pull is unused on this branch) — see "Rubber band" below. |
 | [Player.js](Player.js) | Player state (`extends MovingObject`): facing and `stance`. |
-| [PlayerController.js](PlayerController.js) | Arrow-key and A/D input → player steps / braking / charges / bracing for a block, sampled once per tick. |
-| [Stance.js](Stance.js) | A fighter's attack or block (above, below, dash), drawn in front of its owner — see "Combat" below. |
-| [Clash.js](Clash.js) | Decides a collision from both stances (firm / pushed / reflected) — see "Push" below. |
-| [Initiative.js](Initiative.js) | Which fighter has the initiative: `"!"` mark and particle trail — see "Combat" below. |
-| [Bracing.js](Bracing.js) | Braking to a stop before a block, for player and enemy — see "Combat" below. |
-| [EnemyTactics.js](EnemyTactics.js) | Which stance the enemy takes in combat, and when — see "Enemy" below. |
+| [PlayerController.js](PlayerController.js) | Arrow-key and A/D input → player steps / braking / dash attack, sampled once per tick. |
+| [Stance.js](Stance.js) | A fighter's attack (above, below, dash), drawn in front of its owner — see "Combat" below. |
+| [Clash.js](Clash.js) | Decides a collision from both stances (stopped / pushed) — see "Push" below. |
+| [Initiative.js](Initiative.js) | Which fighter has taken its stance later: particle trail — see "Combat" below. |
+| [EnemyTactics.js](EnemyTactics.js) | When the enemy takes its stance in combat — see "Enemy" below. |
 | [Ground.js](Ground.js) | Background floor plane. |
 | [Enemy.js](Enemy.js) | Patrolling/combat enemy (`extends MovingObject`). |
 | [DeathJump.js](DeathJump.js) | Death feedback: a dying character's copy jumps up and falls out of the play area — see "Push" below. |
@@ -59,7 +58,7 @@ fails at the first `new` call, not at parse time:
 2. `AsciiRenderer.js`, `GameLoop.js`, `World.js`
 3. `Mover.js`, `MovingObject.js`, `MovementSystem.js`
    `RubberBand.js`, then `Player.js`, `PlayerController.js`, `Stance.js`, `Clash.js`,
-   `Bracing.js`, `EnemyTactics.js`, `Ground.js`, `Enemy.js`, `Squiggle.js`,
+   `Initiative.js`, `EnemyTactics.js`, `Ground.js`, `Enemy.js`, `Squiggle.js`,
    `ParallaxObject.js`, `LevelPart.js`, `Level.js`, then the level
    files `levels/*.js` — in that order specifically, since
    `class LevelPart extends ParallaxObject` needs `ParallaxObject` to
@@ -158,8 +157,8 @@ One tick, in this order:
 
 1. **Input** — `playerController.update(dt)` turns the arrow keys
    pressed/held since the last tick into a queued step, brakes the
-   player's speed outside of combat, or adds a combat impulse (see
-   "Push").
+   player's speed outside of combat, or takes the dash attack (see
+   "Combat").
 2. **Objects** — `world.update(dt)`: every object in the `World`
    ([World.js](World.js)) that has an `update(dt)` method runs it —
    enemy AI, particles, squiggle, title
@@ -195,9 +194,9 @@ knockback: a push is just that speed pointing away from whoever
 pushed. Everything that moves an object horizontally changes that
 one value:
 
-- `setVelocity(vx, vy)` — the enemy's patrol drive.
-- `accelerate(dvx)` — the rubber band's pull, the player's combat
-  impulse.
+- `setVelocity(vx, vy)` — the enemy's patrol drive, an attacker's
+  constant `ATTACK_SPEED` in combat.
+- `accelerate(dvx)` — unused in combat on this branch.
 - `knock(vx)` — the outcome of a collision, sets it anew (and forgets
   the half-crossed cell).
 - `brake(amount)` / `stop()` — braking toward 0 outside of combat,
@@ -238,15 +237,14 @@ The rules for player and enemy are set in `registerMovement()` in
 - **Both**: running into the border/scenery at `LETHAL_SPEED` (5
   cells/s) or more (`isFlying()`) kills — `killPlayer()` /
   `vanishEnemy()`. It doesn't matter where the speed comes from (a
-  hit, the rubber band's pull, the player's impulse). Slower, the
+  hit or an attack). Slower, the
   speed just stops (a patrolling enemy also turns around,
   `enemy.bump()`). The player's walking steps never kill; only a step
   along its own speed counts. Every cell crossed that fast leaves a
   push trace.
 - Neither can step onto the other's cell (`occupies()`). They fight
   by touching, not by overlapping (see "Push"). Being blocked by the
-  other's body leaves the speed alone — the encounter recalculates
-  it.
+  other's body leaves the speed alone — the encounter sets it anew.
 
 To add another moving thing: `class Boulder extends MovingObject`,
 steer it through `this.mover` in its `update(dt)`, `world.add()` it,
@@ -307,90 +305,45 @@ way the player is turned, not whether they actually moved. While
 pushed, `facing` doesn't change, so the player stays turned toward
 where the push came from.
 
-## Combat: attacks and blocks
+## Combat: constant speed
 
-*Experimental, branch `block-and-attack-fencing` (from
-`rubber_band_fencing`).* There is no initiative and no shield. Each
-fighter holds at most one **stance** (`player.stance`/`enemy.stance`,
-set/cleared by `setStance()`/`clearStance()` in [game.js](game.js)):
-an **attack** or a **block**, each from one of three directions —
-**above**, **below** or **dash** (a charge straight ahead). Who wins a
-collision is decided by [Clash.js](Clash.js), see "Push". Every
-collision deletes all stances.
+*Experimental, branch `constant-speed-fencing` (from
+`rubber_band_fencing`).* In combat the **speed is constant**: nothing
+accelerates or brakes a fighter. It only changes at once, to one of:
 
-Attack against attack is decided by `Clash.ATTACK_RULE`:
+- `ATTACK_SPEED` (8 cells/s) toward the other fighter, while it holds
+  an attack stance — `steerAttackers()` in [game.js](game.js) sets it
+  every tick before movement, so it also turns around when the two
+  pass each other one row apart (in the same column it keeps its
+  direction);
+- 0 or `PLAYER_PUSH_SPEED`/`ENEMY_PUSH_SPEED` (12 cells/s) away from
+  the other one, after a collision (see "Push"). A pushed fighter keeps
+  flying until it takes a stance again — or runs into the
+  border/scenery, which kills at `LETHAL_SPEED` (see "Movement");
+- 0 after running into something slower than that.
 
-- **`Clash.INITIATIVE`** (current): same sword position: both
-  reflected. Different positions: the fighter *without* the
-  initiative (see below) is pushed back, the one with it stands
-  firm. Nobody holding it: both reflected. `game.js` passes the
-  holder to `Clash.resolve()` via `initiativeSide()`.
-- **`Clash.MATCH`**: if both swords are in the same
-  position the player wins (enemy pushed back), otherwise the enemy
-  wins (player pushed back).
-- **`Clash.CIRCLE`**: the directions beat each other in a circle,
-  like scissors-paper-rock (`Stance.BEATS`, winner → loser):
-  `dash → above → below → dash`; the same direction reflects both.
+Outside of combat the old braking still applies (see "Push").
 
-**`Stance`** ([Stance.js](Stance.js), `z = 25`) is drawn one cell in
-front of its owner (along `facing`), on the row of its direction
-(`Stance.ROWS`: above -1, below +1, dash 0) and glued to it via
-getters. Chars (`Stance.CHARS`, written for facing right, mirrored
-via `Stance.MIRRORED`): attack above `"/"`, below `"\"`, dash `"-"`;
-block above `"\"`, below `"/"`, dash `"]"` (so facing left, an
-upper block is `"/"` and a lower one `"\"`). A dash stance is on its owner's own row, so it
-adds reach (`combatParts()`); above/below don't.
+**Stances** (`player.stance`/`enemy.stance`, set/cleared by
+`setStance()`/`clearStance()`): attacks only, from **above**,
+**below** or as a **dash**. [Stance.js](Stance.js) draws them in front
+of their owner (attack above `"/"`, below `"\"`, dash `"-"`, facing
+right; mirrored facing left), with the set up display of
+`Stance.SETUP_STEP`. A dash stance is on its owner's row, so it adds
+reach (`combatParts()`).
 
-Swing set up: an above/below attack first shows its trail sequence
-(`Initiative.TRAIL_SEQUENCES`) backwards, one char per
-`Stance.SETUP_STEP` ms, before its own char; meanwhile the initiative
-trail only uses the part of the sequence shown so far
-(`Stance.setupHidden`). A direction change starts it over. Display
-only - the stance counts in a collision from the start.
+- **Player:** `W`/`S` attack from above/below; in combat, `A`/`D`
+  toward the enemy take the dash attack (the other one does nothing,
+  and the speed isn't the player's to change). Left/right arrows don't
+  step in combat; up/down step as usual.
+- **Enemy:** see "Enemy stances" below.
 
-The player's stances:
-
-- **Attack above/below** (`W`/`S`): `drawSword(direction)` takes the
-  attack stance at once. Like the enemy's, it first shows its set up
-  (see the swing set up below) - only a display, the stance counts
-  from the start. With an attack held, `W`/`S` switch its direction. Key auto-repeat is ignored. Ignored while
-  bracing (below).
-- **Dash attack** (charge): in combat, `A` dashes left and `D` right
-  (`PlayerController.FENCE_KEYS`; the left/right arrows do nothing in
-  combat, A/D nothing outside of it). Every fresh press *toward* the
-  enemy adds `PlayerController.COMBAT_IMPULSE` to the
-  speed and takes the dash attack (`hooks.charge()`).
-- **Block**: in combat, holding the other fence key (*away* from the
-  enemy) braces: an attack (or set up) is dropped, and the player brakes by
-  `Bracing.BRAKE` (60 cells/s², [Bracing.js](Bracing.js) — well above
-  the rubber band's pull). A speed away from the enemy (after a push)
-  isn't braked; the pull turns it around first. Once stopped, the
-  player takes the block. The shield is placed automatically
-  (`shieldDirection()` in game.js, every tick): in the direction of
-  the enemy's attack stance; without one it stays where it is, or
-  starts at `SHIELD_DEFAULT_DIRECTION` (dash). The arrows don't step
-  while bracing. Releasing the key (or leaving combat) drops the
-  block. `alignShield()` runs right after the enemy's choice every
-  tick, so the shield already faces a new enemy attack in the same
-  tick's collision. A collision ends the bracing
-  (`playerController.spendBlock()`): to block again, the key has to
-  be released and pressed anew.
-
-A fighter holding a block doesn't move: `holdBlockers()` stops its
-`Mover` every tick, right after the rubber band's pull.
-
-**Initiative** ([Initiative.js](Initiative.js), `initiative` in
-game.js, `z = 24`) — decides attack against attack with the
-`INITIATIVE` rule (see "Push"). After every collision nobody holds it (`initiative.reset()`); the
-first fighter to take an *attack* stance afterwards claims it — a
-block doesn't (`initiative.claim()`, called from `setStance()` and, for the player,
-already when an attack set up starts in `drawSword()`). The holder
-shows `Initiative.MARK` (`"!"`) above its head and leaves a particle
-trail behind it (`leaveInitiativeTrail()`, every tick after the
-encounter check): one row above for an above attack, one row below
-for a below attack, else on its own row (`Initiative.TRAIL_ROWS`).
-Each tick spawns one slow particle with `Initiative.TRAIL_DENSITY`
-(0.6) at `Initiative.TRAIL_SPEED` (1 cell/s, no gravitation).
+**Later stance** ([Initiative.js](Initiative.js)): whoever has taken
+its stance last holds the initiative — every new stance, and every
+switch to another direction, claims it (`initiative.claim()`); taking
+the same stance again changes nothing. It decides a collision of two
+equal stances (see "Push") and shows as the particle trail behind its
+holder (`leaveInitiativeTrail()`). Every collision resets it.
 
 ## Enemy
 
@@ -402,7 +355,7 @@ moves it afterwards. All speeds are in cells per second. Three cases,
 checked in order:
 
 1. **Combat** (`inCombat()`, see "Rubber band") — it doesn't touch
-   its speed, the rubber band alone moves it. It only turns to face
+   its speed, its stance does (see "Combat"). It only turns to face
    the player. Touching the player is what triggers
    `checkEnemyEncounter()`.
 2. **Too fast to patrol** outside of combat (`|velocityX| >
@@ -419,30 +372,10 @@ system, so a vanished enemy is inert even though the `enemy` reference
 itself is never reassigned/replaced.
 
 **Enemy stances** ([EnemyTactics.js](EnemyTactics.js)): in combat,
-`enemyTactics.update(dt)` picks the enemy's stance. After every
-collision (`reset()`) it waits `EnemyTactics.DECISION_DELAY` (300 ms),
-then chooses:
-
-- with the `INITIATIVE` rule (see above): if the enemy holds the
-  initiative, it reacts — an attack from a random direction other
-  than the player's (if the player shows a stance); otherwise (the
-  player holds it, or nobody yet) an attack in a random direction;
-- with the `MATCH` rule: an attack from a random direction other
-  than the player's — if the player shows a stance;
-- with `COUNTER_CHANCE` (0.4), a stance that beats the player's
-  current one (`Clash.favors()`: the player pushed back, or reflected
-  while the enemy stands firm) — if the player shows a stance;
-- otherwise an attack (`ATTACK_CHANCE`, 0.6) or a block, in a random
-  direction.
-
-Whenever the player shows a new stance, it chooses again
-`REACTION_DELAY` (250 ms) later. An attack is taken at once; a dash
-attack also charges toward the player with `CHARGE_IMPULSE` (4
-cells/s). A block first brakes the enemy to a stop (`Bracing.brace()`,
-same as the player), then holds for `BLOCK_DURATION` (1000 ms), then
-the enemy drops it and chooses anew. With `EnemyTactics.CAN_BLOCK`
-off (currently), the enemy never blocks: it only picks attacks, also
-when countering.
+after every collision (`reset()`), the enemy waits
+`EnemyTactics.STANCE_DELAY` (500 ms), then takes an attack stance in
+a random direction and keeps it until the next collision. That sends
+it toward the player at `ATTACK_SPEED` (see "Combat").
 
 The enemy isn't in `parallaxObjects` (it has no corners, its position
 isn't a function of the player) and isn't checked in `wouldCollideAt`.
@@ -458,57 +391,42 @@ Not done yet, deliberately out of scope for now:
 
 There is no separate knockback state. A push is just a fighter's one
 horizontal speed (`mover.velocityX`, see "Movement") pointing away
-from the other fighter. Every encounter **recalculates both speeds
-from the current ones**, via `mover.knock(vx)`.
+from the other fighter. Every encounter **sets both speeds anew**,
+via `mover.knock(vx)`.
 
-At the moment of contact, each side's speed toward the other
-(negative while moving away) adds up to the **closing speed**. Both
-stances decide, via `Clash.resolve(playerStance, enemyStance)`
-([Clash.js](Clash.js)), what each side gets — as a speed *away* from
-the other side:
+Both stances decide, via `Clash.resolve(playerStance, enemyStance,
+laterSide())` ([Clash.js](Clash.js)), what each side gets:
 
-- **firm**: 0 (stands its ground)
-- **pushed** back: closing speed + `PLAYER_PUSH_IMPULSE` (6) /
-  `ENEMY_PUSH_IMPULSE` (0)
-- **reflected**: its own speed, turned around (× -1)
+- **stopped**: 0
+- **pushed** back: `PLAYER_PUSH_SPEED` / `ENEMY_PUSH_SPEED` (12
+  cells/s) away from the other one — constant, see "Combat"
 
-| Side A | Side B | Result |
+| Player | Enemy | Result |
 |---|---|---|
-| attack (player) | attack (enemy), same direction | `INITIATIVE`: both reflected. `MATCH`: enemy pushed, player firm. `CIRCLE`: both reflected |
-| attack (player) | attack (enemy), other direction | `INITIATIVE`: the side without the initiative pushed, the other firm (nobody holds it: both reflected). `MATCH`: player pushed, enemy firm. `CIRCLE`: the losing direction (see `Stance.BEATS`) is pushed, the winner firm |
-| attack | block, same direction | attacker reflected, blocker firm |
-| attack | block, other direction | blocker pushed, attacker firm |
-| block | block | both reflected |
-| any stance | none | the one without is pushed, the other firm |
-| none | none | both reflected |
+| stance | none | player stops, enemy pushed |
+| none | stance | enemy stops, player pushed |
+| stance | same stance | whoever has taken it later (see "Combat") stops, the other one is pushed |
+| stance | other stance | both pushed |
+| none | none | both pushed |
 
-After every encounter both stances and the player's set up are
-deleted, the enemy chooses anew (`enemyTactics.reset()`) and nobody
-holds the initiative (`initiative.reset()`).
+After every encounter both stances are deleted, the enemy waits for
+its next one (`enemyTactics.reset()`) and nobody holds the initiative
+(`initiative.reset()`).
 
 **Grace rule:** every encounter also sets each fighter's `grace`
 (`grantGrace()`): true if its outcome is one of `GRACE_OUTCOMES`
-(firm or reflected — not pushed back), else false. The first deadly
-hit of the border/scenery afterwards (`LETHAL_SPEED` or more) then
-doesn't kill: the grace is used up (`useGrace()`) and the fighter
-just stops, like a slow hit, with a small particle burst
-(`GRACE_PARTICLE_COUNT`; with `LOG_ENCOUNTERS` on also a console
-line). So the bounce-off after a won (or
-even) collision can't kill; the next encounter grants the grace
-anew.
+(stopped — not pushed back), else false. The first deadly hit of the
+border/scenery afterwards (`LETHAL_SPEED` or more) then doesn't kill:
+the grace is used up (`useGrace()`) and the fighter just stops, with
+a small particle burst (`GRACE_PARTICLE_COUNT`; with `LOG_ENCOUNTERS`
+on also a console line). The next encounter grants the grace anew.
 
 **Encounter log:** with `LOG_ENCOUNTERS = true` (in
 [game.js](game.js)), every encounter writes one line to the browser
-console: both stances (`(set up)` for the player's set up), the rule
-that decided, both outcomes and both resulting speeds away from the
-other side, e.g.
-`Encounter | player: attack above (set up) | enemy: block below | block misses, blocker pushed back: player firm, enemy pushed | speeds away: player 0.0, enemy 20.0 cells/s`.
-
-On top of that, everyone who bounces off (result > 0) gets
-`ENCOUNTER_PUSH` extra; whoever stands firm keeps 0. The fixed tick
-loses a little speed on every bounce (the pull already brakes the
-first tick after the reversal), and without this the fight would
-slowly die down.
+console: both stances (`(set up)` while their set up is shown), the
+rule that decided, both outcomes and both resulting speeds away from
+the other side, e.g.
+`Encounter | player: attack above | enemy: attack above | same stance, player was later: player stopped, enemy pushed | speeds away: player 0.0, enemy 12.0 cells/s`.
 
 **Contact:** an encounter happens when the two sides *touch*, not
 when they overlap. Each side is a list of parts (`combatParts()`):
@@ -529,9 +447,7 @@ the player).
 - `checkEnemyEncounter()` runs once per tick, after all movement, and
   only fires when both are alive, touching, and **closing in**
   (closing speed > 0). Right after an encounter they move apart, so
-  staying in contact doesn't keep re-triggering it. Standing pressed
-  together (a clinch), the pull closes in by a tiny amount every tick
-  and the stances decide who bounces off.
+  staying in contact doesn't keep re-triggering it.
 - Running into the border/scenery fast enough kills, see "Movement".
   `vanishEnemy()` (and `killPlayer()`) call `playDeathJump()`: a
   `DeathJump` (`z = 30`, same character as the dead one) starts at
@@ -539,8 +455,7 @@ the player).
   cells/s). `DeathJump.GRAVITY` (40 cells/s²) pulls it back down
   (peak ≈ 4 cells) until it has fallen below the play area's bottom
   edge, where it removes itself.
-- In combat the speed doesn't brake on its own: the rubber band pulls
-  both fighters together (see "Rubber band").
+- In combat the speed doesn't brake: it's constant (see "Combat").
 - Outside of combat the speed brakes toward 0:
   - Enemy: see "Enemy" — `Enemy.BRAKE` (20 cells/s²) until it can
     patrol again.
@@ -566,37 +481,13 @@ Known gaps / deliberate simplifications:
 
 ## Rubber band (combat)
 
-*Experimental, branch `rubber_band_fencing`.* `RubberBand`
-([RubberBand.js](RubberBand.js)) pulls player and enemy toward each
-other while they're **in combat**: both alive and at most
-`RubberBand.COMBAT_ROW_DISTANCE` (1) rows apart (`engaged()`).
-
-- **One speed per fighter, one constant acceleration.**
-  `rubberBand.update(dt)` accelerates each fighter's `velocityX`
-  toward the other by `RubberBand.ATTRACTION` (14.4 cells/s²). Moving
-  apart (after a hit), that brakes it; then it swings back. The pull
-  alone accelerates up to `RubberBand.MAX_PULL_SPEED` (8 cells/s)
-  toward the other, but never brakes a faster approach.
-  `speedToward(fighter)` is a fighter's speed toward the other one
-  (negative while flying apart).
-- **An encounter** (`checkEnemyEncounter()`) recalculates both speeds
-  from the current ones, see "Push". Hitting a border or scenery at
-  `LETHAL_SPEED` or more is deadly, pushed or pulled alike — except
-  for the grace rule (see "Push").
-- **A/D**: every fresh press toward the enemy adds
-  `PlayerController.COMBAT_IMPULSE` (4 cells/s) once and takes the
-  dash attack; holding the key away from the enemy braces for a
-  block (see "Combat"). Left/right arrows don't step in combat. Up/down step
-  as usual (except while bracing), so moving 2 rows away leaves
-  combat. The player always faces the enemy in combat.
-- **Blocked** by something slower than `LETHAL_SPEED`: the speed
-  stops (`mover.stop()`), then the pull builds up again. Blocked by
-  the other's body: the speed stays, the encounter handles it.
-- **One row apart** the two can't touch, so they swing past each
-  other. The pull then points the other way and brakes them.
-- **Leaving combat** keeps the speed; it just brakes from then on
-  (see "Push").
-- The enemy has no drive of its own in combat.
+On this branch `RubberBand` ([RubberBand.js](RubberBand.js)) only
+decides **when** the two are in combat: both alive and at most
+`RubberBand.COMBAT_ROW_DISTANCE` (1) rows apart (`engaged()`), plus
+`towardOther()`. Its pull (`update()`) isn't called — in combat the
+speed is constant (see "Combat"). Up/down step as usual, so moving 2
+rows away leaves combat; leaving combat keeps the speed, which then
+brakes (see "Push"). The player always faces the enemy in combat.
 
 ## Particles
 

@@ -1,75 +1,34 @@
-// The enemy's fencing in combat: which stance it takes, and when.
-// Runs once per game tick (see tick() in game.js), only while the
-// rubber band holds the two in combat.
+// The enemy's fencing in combat: which attack stance it takes, and
+// when. Runs once per game tick (see tick() in game.js), only while
+// the two are in combat (see RubberBand.engaged()).
 //
-// After every collision (reset()) the enemy waits DECISION_DELAY,
-// then picks a stance (see choose()):
-// - with Clash.ATTACK_RULE INITIATIVE: holding the initiative, it
-//   reacts to the player - an attack from a random direction other
-//   than the player's (if the player shows a stance). Otherwise (the
-//   player holds it, or nobody yet) an attack in a random direction.
-// - with Clash.ATTACK_RULE MATCH: an attack from a random direction
-//   other than the player's - if the player shows a stance
-// - with COUNTER_CHANCE, one that wins against the player's current
-//   stance (see Clash.favors()) - if the player shows one
-// - otherwise an attack (ATTACK_CHANCE) or a block, in a random
-//   direction
-// With CAN_BLOCK off, the enemy only ever attacks.
-// Whenever the player shows a new stance, the enemy picks again
-// REACTION_DELAY later.
+// After every collision (reset()) the enemy waits STANCE_DELAY, then
+// takes an attack stance in a random direction (see
+// Stance.DIRECTIONS) - and keeps it until the next collision. Taking
+// it sends the enemy toward the player (see steerAttackers() in
+// game.js).
 //
-// An attack is taken at once; a dash attack also charges toward the
-// player with CHARGE_IMPULSE. A block first brakes the enemy to a
-// stop (see Bracing.js), then holds for BLOCK_DURATION before the
-// enemy drops it and picks anew.
-//
-// The stance itself is set by game.js, through the `hooks`:
-// attack(direction), block(direction) and drop().
+// The stance itself is set by game.js, through the hook
+// attack(direction).
 class EnemyTactics {
 
-    // Milliseconds.
-    static DECISION_DELAY = 500; // 300;    
-    static REACTION_DELAY = 500; // 250;
-    static BLOCK_DURATION = 1000;
-
-    // 0..1.
-    static COUNTER_CHANCE = 0.4;
-    static ATTACK_CHANCE = 0.6;
-
-    // Whether the enemy takes block stances at all.
-    static CAN_BLOCK = false;
-
-    // Cells per second.
-    static CHARGE_IMPULSE = 4;
+    // Milliseconds between a collision and the enemy's next stance.
+    static STANCE_DELAY = 500;
 
 
-    // `readPlayerStance()` returns the player's { kind, direction }
-    // or null. `initiative` is the Initiative (see Initiative.js).
-    constructor(enemy, rubberBand, readPlayerStance, initiative, hooks) {
+    constructor(enemy, rubberBand, hooks) {
         this.enemy = enemy;
         this.rubberBand = rubberBand;
-        this.readPlayerStance = readPlayerStance;
-        this.initiative = initiative;
         this.hooks = hooks;
 
         this.reset();
     }
 
 
-    // Starts over after a collision: no plan, decide again after
-    // DECISION_DELAY.
+    // Starts over after a collision: a new stance after STANCE_DELAY.
     reset() {
-        // { kind, direction } the enemy is going for, or null.
-        this.plan = null;
-
-        // Time until the next choice; 0 = nothing pending.
-        this.wait = EnemyTactics.DECISION_DELAY;
-
-        // Block held (after bracing), and for how much longer.
-        this.blocking = false;
-        this.blockTime = 0;
-
-        this.seenStance = EnemyTactics.describe(this.readPlayerStance());
+        // Time until the next stance; 0 = none pending.
+        this.wait = EnemyTactics.STANCE_DELAY;
     }
 
 
@@ -79,134 +38,15 @@ class EnemyTactics {
             return;
         }
 
-        this.watchPlayer();
-
-        if (this.wait > 0) {
-            this.wait -= dt;
-
-            if (this.wait <= 0) {
-                this.wait = 0;
-                this.decide();
-            }
-        }
-
-        if (this.plan && this.plan.kind === Stance.BLOCK) {
-            this.holdBlock(dt);
-        }
-    }
-
-
-    // A new stance from the player calls for a new choice, unless one
-    // is pending anyway.
-    watchPlayer() {
-        const stance = this.readPlayerStance();
-        const seen = EnemyTactics.describe(stance);
-
-        if (seen === this.seenStance) {
+        if (this.wait <= 0) {
             return;
         }
 
-        this.seenStance = seen;
+        this.wait -= dt;
 
-        if (stance && this.wait <= 0) {
-            this.wait = EnemyTactics.REACTION_DELAY;
+        if (this.wait <= 0) {
+            this.wait = 0;
+            this.hooks.attack(Stance.randomDirection());
         }
-    }
-
-
-    decide() {
-        const plan = this.choose(this.readPlayerStance());
-        this.plan = plan;
-        this.blocking = false;
-
-        if (plan.kind === Stance.BLOCK) {
-            // Bracing first - no stance until it has stopped.
-            this.hooks.drop();
-            return;
-        }
-
-        this.hooks.attack(plan.direction);
-
-        if (plan.direction === "dash") {
-            const toward = this.rubberBand.towardOther(this.enemy);
-            this.enemy.mover.accelerate(toward * EnemyTactics.CHARGE_IMPULSE);
-        }
-    }
-
-
-    choose(playerStance) {
-
-        // INITIATIVE rule: with the initiative, a different direction
-        // than the player's wins - without it, a random one.
-        if (Clash.ATTACK_RULE === Clash.INITIATIVE) {
-            const react = playerStance && this.initiative.has(this.enemy);
-
-            return {
-                kind: Stance.ATTACK,
-                direction: Stance.randomDirection(react ? playerStance.direction : null)
-            };
-        }
-
-        // MATCH rule: the enemy always attacks from another direction
-        // than the player's.
-        if (playerStance && Clash.ATTACK_RULE === Clash.MATCH) {
-            return {
-                kind: Stance.ATTACK,
-                direction: Stance.randomDirection(playerStance.direction)
-            };
-        }
-
-        if (playerStance && Math.random() < EnemyTactics.COUNTER_CHANCE) {
-            const winners = Stance.OPTIONS.filter(option =>
-                EnemyTactics.allowed(option) && Clash.favors(option, playerStance)
-            );
-
-            if (winners.length > 0) {
-                return winners[Math.floor(Math.random() * winners.length)];
-            }
-        }
-
-        const attack = !EnemyTactics.CAN_BLOCK || Math.random() < EnemyTactics.ATTACK_CHANCE;
-        const kind = attack ? Stance.ATTACK : Stance.BLOCK;
-
-        return { kind, direction: Stance.randomDirection() };
-    }
-
-
-    // Brakes until stopped, takes the block, holds it BLOCK_DURATION,
-    // then drops it and picks anew.
-    holdBlock(dt) {
-
-        if (!this.blocking) {
-            const toward = this.rubberBand.towardOther(this.enemy);
-
-            if (Bracing.brace(this.enemy, toward, dt)) {
-                this.blocking = true;
-                this.blockTime = EnemyTactics.BLOCK_DURATION;
-                this.hooks.block(this.plan.direction);
-            }
-            return;
-        }
-
-        this.blockTime -= dt;
-
-        if (this.blockTime > 0) {
-            return;
-        }
-
-        this.hooks.drop();
-        this.plan = null;
-        this.blocking = false;
-        this.decide();
-    }
-
-
-    static allowed(option) {
-        return EnemyTactics.CAN_BLOCK || option.kind !== Stance.BLOCK;
-    }
-
-
-    static describe(stance) {
-        return stance ? `${stance.kind} ${stance.direction}` : "none";
     }
 }
