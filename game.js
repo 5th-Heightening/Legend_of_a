@@ -455,9 +455,9 @@ function startGame() {
 // - W/S attack from above/below
 // - in combat, A/D toward the enemy: the dash attack (see
 //   PlayerController.js)
-// Taking a stance - or switching to another direction - makes the
-// player the later one (see Initiative.js); taking the same one again
-// changes nothing.
+// Taking a stance - or switching to another direction - claims the
+// initiative (see Initiative.js, FIRST_CLAIM_KEEPS); taking the same
+// one again changes nothing.
 //
 // The enemy takes its stance EnemyTactics.STANCE_DELAY after every
 // collision - see EnemyTactics.js.
@@ -469,7 +469,7 @@ const ATTACK_SPEED = 8;
 const initiative = new Initiative();
 
 // Takes an attack stance from `direction`. An existing stance just
-// changes its direction. Either way the fighter is the later one now,
+// changes its direction. Either way the fighter claims the initiative,
 // unless the stance stays as it is.
 function setStance(fighter, direction) {
 
@@ -803,8 +803,7 @@ function useGrace(fighter) {
 }
 
 
-// Who has taken its stance later (holds the initiative), as
-// Clash.resolve() wants it.
+// Who holds the initiative, as Clash.resolve() wants it.
 function laterSide() {
 
     if (initiative.has(player)) {

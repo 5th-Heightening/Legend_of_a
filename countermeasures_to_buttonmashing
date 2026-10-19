@@ -1,0 +1,371 @@
+The core problem is that your game rewards **input speed rather than decision-making**. If every attack can be triggered with one keystroke and reacting quickly is always beneficial, button mashing becomes a viable strategy because players have little incentive to consider what their opponent is doing.
+
+The solution isn't necessarily to make attacks harder to execute. It's to make **every action a contextual decision with meaningful risks, rewards, and counterplay**.
+
+Here are several mechanics you could combine to achieve that.
+
+## 1\. Give attacks situational strengths and weaknesses
+
+Make each attack effective against certain opponent behaviors but vulnerable to others.
+
+For example:
+
+| Attack | Beats | Loses to | Typical use |
+| --- | --- | --- | --- |
+| Quick jab | Slow attacks, recovery | Blocks, counters | Interrupting an opponent |
+| Heavy strike | Passive defense, predictable movement | Quick attacks, dodges | Punishing an opening |
+| Low attack | High guard | Low guard, jumping | Exploiting defensive habits |
+| Throw | Blocking | Attacks, throw breaks | Punishing excessive defense |
+| Dodge | Heavy strikes, predictable attacks | Tracking attacks, throws | Evading a committed attack |
+| Counter | Predictable attacks | Feints, delayed attacks | Reading the opponent |
+
+The important part is that no attack should be universally good.
+
+If a player randomly cycles through attacks, their opponent should be able to exploit the resulting patterns. A player who recognizes the opponent's behavior should have a consistent advantage over someone who simply reacts quickly.
+
+**Design principle:** Reward choosing the right action, not merely executing an action quickly.
+
+## 2\. Introduce commitment and recovery frames
+
+This is probably the most important change you could make.
+
+Every attack should have three phases:
+
+1. **Startup:** The attack begins, but hasn't connected yet.
+2. **Active frames:** The attack can hit the opponent.
+3. **Recovery:** The character cannot immediately act again, or has limited defensive options.
+
+Consider two attacks:
+
+| Property | Quick jab | Heavy strike |
+| --- | --- | --- |
+| Startup | 5 frames | 15 frames |
+| Active frames | 3 frames | 4 frames |
+| Recovery | 10 frames | 25 frames |
+| Damage | 5 | 20 |
+
+These are illustrative numbers, assuming a 60 FPS game.
+
+A quick jab is useful for interrupting an opponent, but its damage is limited. A heavy strike deals much more damage, but committing to it creates a substantial vulnerability window.
+
+Now imagine that a player mashes heavy attacks.
+
+Even if the first attack misses, they cannot immediately launch another one. Their opponent can recognize the commitment, dodge the attack, and punish the recovery.
+
+### Why this works
+
+The player must evaluate whether the expected reward justifies the risk.
+
+Instead of asking, "How quickly can I press a button?" they start asking:
+
+- Is my opponent vulnerable?
+- Can they interrupt this attack?
+- Will they dodge or counter?
+- Can I afford to miss?
+
+One caution: recovery should create an actual opportunity for the opponent. If every missed attack can be canceled into a dodge or another attack immediately, the commitment mechanic loses much of its value.
+
+---
+
+## 3\. Make fast reactions conditional on the opponent's behavior
+
+You specifically want to reward fast reactions **only when they match the situation**.
+
+A particularly effective way to do this is to introduce reaction windows.
+
+For example, suppose your opponent launches a heavy attack.
+
+- If you dodge during the correct window, you evade the attack and gain a counterattack opportunity.
+- If you dodge too early, the opponent can delay their attack or adjust its timing.
+- If you dodge too late, you get hit.
+- If you attack immediately, you might interrupt the heavy attack, but only if your attack is fast enough.
+
+Now consider an opponent who repeatedly uses quick jabs.
+
+Dodging every time might be a bad idea because the jabs recover quickly, and the opponent can attack again before you gain an advantage.
+
+The player must recognize the attack and select an appropriate response.
+
+### Use different reaction windows for different actions
+
+You can make this more interesting by giving each defensive action a distinct timing requirement.
+
+| Defensive action | Timing requirement | Reward |
+| --- | --- | --- |
+| Standard block | Before impact | Avoids or reduces damage |
+| Perfect block | Just before impact | Advantage or resource gain |
+| Dodge | Before impact, with correct direction | Avoids an attack |
+| Parry | Narrow window, correct attack type | Opens a counterattack |
+| Interrupt | Attack before the opponent's active frames | Stops their attack |
+
+The key is to avoid making perfect timing universally optimal.
+
+For instance, a perfect parry could be highly rewarding against predictable strikes but vulnerable to throws and delayed attacks.
+
+**Fast reactions become valuable because they exploit a specific opportunity, not because speed alone is powerful.**
+
+---
+
+## 4\. Make repeated inputs predictable
+
+Button mashing often works because the game treats each input independently. You can change that by making repeated actions easier to anticipate and punish.
+
+There are several ways to accomplish this.
+
+### A. Repeated attacks become less effective
+
+Suppose a player repeatedly uses the same attack.
+
+You could introduce a diminishing advantage:
+
+- The first jab has normal hitstun.
+- Subsequent jabs become increasingly susceptible to interrupts.
+- The defender receives a small advantage after successfully blocking repeated jabs.
+
+Alternatively, repeated attacks could increase the attacker's recovery time slightly.
+
+This discourages repetition without prohibiting it.
+
+**Be careful with blanket damage penalties.** If the game simply reduces the damage of consecutive attacks, players may feel punished for using a legitimate strategy. It's often better to make repetitive behavior exploitable by the opponent.
+
+### B. Repeated inputs create predictable timing
+
+If a player presses the attack key every few frames, their attacks will occur at predictable intervals.
+
+An opponent could learn that rhythm and:
+
+- Parry the next attack.
+- Interrupt the startup.
+- Dodge the expected strike.
+- Use a delayed attack to catch the opponent's defensive response.
+
+This creates a feedback loop: mashing generates information that the opponent can exploit.
+
+### C. Introduce defensive adaptation
+
+You could also make defending against repeated attacks progressively easier.
+
+For example, blocking three consecutive jabs might grant the defender a brief opportunity to interrupt the fourth.
+
+However, avoid making this a guaranteed escape from every pressure sequence. Otherwise, sustained offensive pressure becomes ineffective, and the combat may devolve into alternating single attacks.
+
+**My recommendation:** Start with predictable timing and punishable recovery before adding special anti-mashing rules.
+
+---
+
+## 5\. Introduce a resource that rewards successful reads
+
+A resource system can make situational awareness valuable without requiring you to remove one-key attacks.
+
+Imagine that every character has a focus meter.
+
+Players build focus by:
+
+- Parrying an attack at the correct moment.
+- Dodging a committed strike.
+- Interrupting a heavy attack.
+- Punishing a whiff.
+- Correctly countering a throw or other predictable action.
+
+They can spend focus on:
+
+- Enhanced attacks.
+- Combo extensions.
+- Faster recovery.
+- Special defensive options.
+- High-damage finishers.
+
+Simply attacking repeatedly might generate little or no focus.
+
+This creates an interesting distinction:
+
+- **Aggressive players** can maintain pressure.
+- **Reactive players** can exploit mistakes to gain resources.
+- **Predictive players** can bait opponents into spending resources or making commitments.
+
+The important balance consideration is that a player who falls behind shouldn't automatically lose access to all meaningful options. Resource gains should reward skill without making a single successful read snowball into an unavoidable victory.
+
+---
+
+## 6\. Add feints and delayed attacks
+
+If players can always respond to an animation with the same defensive input, reactions become mechanical rather than thoughtful.
+
+Feints and delays help prevent this.
+
+Imagine a character with three options:
+
+- **Quick strike:** Hits early and can interrupt a slow response.
+- **Heavy strike:** Hits later and punishes premature defense.
+- **Feint:** Starts the heavy attack animation but cancels before the strike, baiting a defensive reaction.
+
+Now the defender has to distinguish between an actual attack and an attempt to provoke a response.
+
+A defender who always dodges when seeing the heavy attack animation becomes vulnerable to the feint.
+
+A defender who always waits for confirmation might get interrupted by the quick strike.
+
+This creates a mind game in which reaction speed matters, but interpreting the situation matters more.
+
+### The important distinction: reaction versus prediction
+
+There are two different skills you can reward:
+
+- **Reaction:** Responding to an attack after its relevant properties become identifiable.
+- **Prediction:** Anticipating what the opponent will do before it becomes obvious.
+
+A good fighting game gives both skills a place.
+
+If every attack is reactable with enough time, combat can become overly defensive. If everything must be predicted, combat can feel arbitrary.
+
+A mix of reactable attacks, ambiguous situations, and punishable predictions can create a healthier balance.
+
+---
+
+## 7\. Make the opponent's state matter
+
+Another approach is to give attacks different outcomes depending on the opponent's current state.
+
+For example:
+
+| Opponent's state | Effective response | Risky response |
+| --- | --- | --- |
+| Recovering from a heavy attack | Fast punish | Slow heavy attack |
+| Holding guard | Throw or guard-breaking attack | Predictable strike |
+| Approaching aggressively | Interrupt or retreat | Slow startup attack |
+| Frequently dodging | Tracking attack or feint | Predictable heavy strike |
+| Attempting a throw | Throw break or interrupt | Passive defense |
+| Staggered | High-damage punish | Unnecessary defensive action |
+
+You can also give attacks properties such as:
+
+- **Tracking:** Follows an opponent who dodges.
+- **Armor:** Absorbs certain attacks during startup.
+- **Guard breaking:** Defeats sustained blocking but is vulnerable to interruption.
+- **Counter properties:** Punishes a specific type of incoming attack.
+- **Anti-air:** Punishes jumping but is weak against grounded opponents.
+
+These properties make the opponent's behavior directly relevant to action selection.
+
+The player is no longer choosing an attack simply because it is available. They're choosing it because it answers the current situation.
+
+---
+
+## 8\. Use hit confirmation instead of rewarding raw input speed
+
+This is particularly useful if your game is built around a small number of buttons.
+
+Rather than rewarding players for repeatedly issuing attacks, reward them for responding to the outcome of their previous action.
+
+For example:
+
+1. The player presses the attack key.
+2. The attack connects, misses, or gets blocked.
+3. Each outcome creates a different opportunity.
+4. The player must choose the next action accordingly.
+
+An example:
+
+- **On hit:** Continue into a combo or use a knockback follow-up.
+- **On block:** Stop, reposition, or use a safe pressure option.
+- **On whiff:** Retreat or prepare to defend during recovery.
+- **On counter-hit:** Use a special follow-up with increased reward.
+
+The important part is that the same input should not produce equally good results in every situation.
+
+You can even retain one-key attacks while requiring players to choose the right action between attacks.
+
+This keeps the controls accessible while adding depth to the decisions.
+
+---
+
+# 9\. My preferred solution: Combine three mechanics
+
+If I were designing your game, I wouldn't implement all eight systems at once. I'd start with three complementary mechanics.
+
+### Mechanic A: Commitment
+
+Attacks have startup, active, and recovery frames. Strong attacks create meaningful opportunities for the opponent to punish mistakes.
+
+**Purpose:** Prevents unlimited attack spam.
+
+### Mechanic B: Situational counters
+
+Different actions counter different behaviors. Quick attacks interrupt slow ones, throws punish blocking, and feints punish predictable defensive reactions.
+
+**Purpose:** Makes the opponent's behavior relevant to the player's decision.
+
+### Mechanic C: Precision rewards
+
+Correctly timed parries, dodges, and interrupts grant an advantage, such as a guaranteed punish opportunity or a small amount of focus.
+
+**Purpose:** Rewards fast reactions when they're appropriate.
+
+Together, these mechanics create a combat loop:
+
+1. Player A commits to an attack.
+2. Player B identifies the attack and chooses a response.
+3. If Player B responds correctly, they gain an advantage.
+4. Player A can anticipate that response and adapt.
+5. Player B must now decide whether to react, predict, or wait.
+
+This is where the strategic depth emerges: **the best response depends not only on the current attack, but also on what the opponent expects you to do.**
+
+---
+
+## 10\. How to tell whether your changes are working
+
+You can test these mechanics without building a complete combat system.
+
+Create a simple prototype with three attacks and three defensive options.
+
+For example:
+
+- Quick attack: fast, low damage.
+- Heavy attack: slow, high damage.
+- Throw: defeats blocking.
+
+Defensive options:
+
+- Block: defeats quick and heavy attacks.
+- Dodge: avoids heavy attacks but loses to throws.
+- Interrupt: defeats heavy startup but loses to quick attacks.
+
+Then test three types of players or bots:
+
+1. **The masher:** Repeatedly uses attacks without considering the opponent.
+2. **The reactor:** Responds to visible attacks with the appropriate defense.
+3. **The strategist:** Uses feints, delays, and patterns to provoke incorrect responses.
+
+Track the win rate for each playstyle.
+
+Ideally:
+
+- The masher can win against an opponent who makes mistakes.
+- The reactor consistently punishes predictable behavior.
+- The strategist can exploit a reactor who always makes the same response.
+- The reactor can adapt to a strategist who becomes predictable.
+
+If the masher still performs well against competent opponents, look for attacks with too little recovery, insufficient counterplay, or rewards that are too high relative to their risk.
+
+If the reactor wins almost every encounter, some attacks may be too easy to identify and counter. Consider introducing feints, delayed timing, or situations where the defender must commit to a prediction.
+
+If the strategist wins simply by guessing randomly, the game may be too dependent on mind games rather than meaningful information.
+
+---
+
+## One final question that could significantly change the design
+
+When you say every attack can be triggered with one keystroke, which of these best describes your combat system?
+
+**A.** Every key triggers a different attack, and players can press keys as rapidly as they want.
+
+**B.** One attack key triggers different attacks depending on the character's state or the opponent's state.
+
+**C.** The game is primarily about reaction speed, similar to a fighting game built around identifying incoming attacks and selecting the correct counter.
+
+**D.** Attacks happen almost instantly, with little or no animation or recovery.
+
+**E.** Something else.
+
+The distinction matters because the best solution for a traditional fighting game with attack recovery is quite different from the best solution for a reaction-based combat game.

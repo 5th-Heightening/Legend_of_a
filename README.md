@@ -32,7 +32,7 @@ by `SplashScreen.js`/`SpeechBubble.js` before this split:
 | [PlayerController.js](PlayerController.js) | Arrow-key and A/D input → player steps / braking / dash attack, sampled once per tick. |
 | [Stance.js](Stance.js) | A fighter's attack (above, below, dash), drawn in front of its owner — see "Combat" below. |
 | [Clash.js](Clash.js) | Decides a collision from both stances (stopped / pushed) — see "Push" below. |
-| [Initiative.js](Initiative.js) | Which fighter has taken its stance later: particle trail — see "Combat" below. |
+| [Initiative.js](Initiative.js) | Which fighter holds the initiative: particle trail — see "Combat" below. |
 | [EnemyTactics.js](EnemyTactics.js) | When the enemy takes its stance in combat — see "Enemy" below. |
 | [Ground.js](Ground.js) | Background floor plane. |
 | [Enemy.js](Enemy.js) | Patrolling/combat enemy (`extends MovingObject`). |
@@ -338,11 +338,14 @@ reach (`combatParts()`).
   step in combat; up/down step as usual.
 - **Enemy:** see "Enemy stances" below.
 
-**Later stance** ([Initiative.js](Initiative.js)): whoever has taken
-its stance last holds the initiative — every new stance, and every
-switch to another direction, claims it (`initiative.claim()`); taking
-the same stance again changes nothing. It decides a collision of two
-equal stances (see "Push") and shows as the particle trail behind its
+**Initiative** ([Initiative.js](Initiative.js)): every new stance,
+and every switch to another direction, claims it
+(`initiative.claim()`); taking the same stance again changes nothing.
+With `Initiative.FIRST_CLAIM_KEEPS` on (default), only the first
+fighter to take a stance after a collision gets it and keeps it until
+the next collision; with it off, whoever has taken its stance last
+holds it. It decides a collision of two
+different stances (see "Push") and shows as the particle trail behind its
 holder (`leaveInitiativeTrail()`). Every collision resets it.
 
 ## Enemy
@@ -405,8 +408,8 @@ laterSide())` ([Clash.js](Clash.js)), what each side gets:
 |---|---|---|
 | stance | none | player stops, enemy pushed |
 | none | stance | enemy stops, player pushed |
-| stance | same stance | whoever has taken it later (see "Combat") stops, the other one is pushed |
-| stance | other stance | both pushed |
+| stance | same stance | both pushed |
+| stance | other stance | whoever holds the initiative (see "Combat") stops, the other one is pushed (both pushed if nobody holds it) |
 | none | none | both pushed |
 
 After every encounter both stances are deleted, the enemy waits for
@@ -426,7 +429,7 @@ on also a console line). The next encounter grants the grace anew.
 console: both stances (`(set up)` while their set up is shown), the
 rule that decided, both outcomes and both resulting speeds away from
 the other side, e.g.
-`Encounter | player: attack above | enemy: attack above | same stance, player was later: player stopped, enemy pushed | speeds away: player 0.0, enemy 12.0 cells/s`.
+`Encounter | player: attack above | enemy: attack below | different stances, player has initiative: player stopped, enemy pushed | speeds away: player 0.0, enemy 12.0 cells/s`.
 
 **Contact:** an encounter happens when the two sides *touch*, not
 when they overlap. Each side is a list of parts (`combatParts()`):

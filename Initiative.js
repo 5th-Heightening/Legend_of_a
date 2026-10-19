@@ -1,10 +1,10 @@
-// Which fighter has the initiative: the one that has taken its stance
-// later (claim()) - it wins a collision with both stances the same
-// (see Clash.js).
+// Which fighter has the initiative (claim()) - it wins a collision
+// of two different stances (see Clash.js).
 //
-// After a collision nobody holds it (reset()); every stance taken
-// afterwards (also a change of direction) hands it to the one taking
-// it. Shown as a MARK above
+// After a collision nobody holds it (reset()). With FIRST_CLAIM_KEEPS
+// on, the first fighter to take a stance afterwards holds it until the
+// next collision; with it off, every stance taken (also a change of
+// direction) hands it to the one taking it. Shown as a MARK above
 // the holder's head, glued to it via getters, so it moves along.
 // Hidden while nobody holds it or the holder is dead.
 //
@@ -15,6 +15,11 @@
 class Initiative {
 
     static MARK = "!";
+
+    // true: only the first stance after a collision claims the
+    // initiative. false: the later stance takes it over (rewards
+    // reacting to the other one's stance).
+    static FIRST_CLAIM_KEEPS = true;
 
     // Where the mark shows, relative to the holder (in cells).
     static MARK_DX = 0;
@@ -60,8 +65,14 @@ class Initiative {
     }
 
 
-    // `fighter` takes a stance: it's the later one now.
+    // `fighter` takes a stance: it holds the initiative now - unless
+    // FIRST_CLAIM_KEEPS and someone already holds it.
     claim(fighter) {
+
+        if (Initiative.FIRST_CLAIM_KEEPS && this.holder !== null) {
+            return;
+        }
+
         this.holder = fighter;
     }
 

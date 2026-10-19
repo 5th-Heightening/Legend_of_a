@@ -15,7 +15,7 @@ class Stance {
 
     static ATTACK = "attack";
     static BLOCK = "block";
-
+" ´ - ."
     static KINDS = [Stance.ATTACK, Stance.BLOCK];
 
     static DIRECTIONS = ["above", "below", "dash"];
