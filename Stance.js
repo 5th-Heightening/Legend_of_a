@@ -28,6 +28,14 @@ class Stance {
         below: "dash"
     };
 
+    // Attack direction -> the block direction that parries it. Only
+    // decides attack against block.
+    static PARRIES = {
+        above: "below",
+        below: "above",
+        dash: "dash"
+    };
+
     // Rows relative to the owner, per direction.
     static ROWS = {
         above: -1,
@@ -63,6 +71,13 @@ class Stance {
 
     static beats(direction, other) {
         return Stance.BEATS[direction] === other;
+    }
+
+
+    // Does a block from `blockDirection` parry an attack from
+    // `attackDirection`? See PARRIES.
+    static parries(blockDirection, attackDirection) {
+        return Stance.PARRIES[attackDirection] === blockDirection;
     }
 
 

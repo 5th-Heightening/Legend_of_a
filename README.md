@@ -338,7 +338,7 @@ only - the stance counts in a collision from the start.
 
 The player's stances:
 
-- **Attack above/below** (`ArrowUp`/`ArrowDown`, `SWORD_KEYS` in
+- **Attack below/above** (`ArrowUp`/`ArrowDown`, `SWORD_KEYS` in
   game.js): `drawSword(direction)` takes the
   attack stance at once. Like the enemy's, it first shows its set up
   (see the swing set up below) - only a display, the stance counts
@@ -355,8 +355,9 @@ The player's stances:
   the rubber band's pull). A speed away from the enemy (after a push)
   isn't braked; the pull turns it around first. Once stopped, the
   player takes the block. The shield is placed automatically
-  (`shieldDirection()` in game.js, every tick): in the direction of
-  the enemy's attack stance; without one it stays where it is, or
+  (`shieldDirection()` in game.js, every tick): where it parries the
+  enemy's attack stance (`Stance.PARRIES`: an above attack is blocked
+  from below and vice versa, a dash by a dash block); without one it stays where it is, or
   starts at `SHIELD_DEFAULT_DIRECTION` (dash). Releasing the key (or leaving combat) drops the
   block. `alignShield()` runs right after the enemy's choice every
   tick, so the shield already faces a new enemy attack in the same
@@ -464,8 +465,8 @@ the other side:
 |---|---|---|
 | attack (player) | attack (enemy), same direction | `INITIATIVE`: both reflected. `MATCH`: enemy pushed, player firm. `CIRCLE`: both reflected |
 | attack (player) | attack (enemy), other direction | `INITIATIVE`: the side without the initiative pushed, the other firm (nobody holds it: both reflected). `MATCH`: player pushed, enemy firm. `CIRCLE`: the losing direction (see `Stance.BEATS`) is pushed, the winner firm |
-| attack | block, same direction | attacker reflected, blocker firm |
-| attack | block, other direction | blocker pushed, attacker firm |
+| attack | block parrying it (`Stance.PARRIES`: above ↔ below, dash ↔ dash) | attacker reflected, blocker firm |
+| attack | any other block | blocker pushed, attacker firm |
 | block | block | both reflected |
 | any stance | none | the one without is pushed, the other firm |
 | none | none | both reflected |

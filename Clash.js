@@ -18,8 +18,9 @@
 //     pushed back
 //   - CIRCLE: the losing direction (see Stance.BEATS) is pushed
 //     back; the same direction on both sides reflects both
-// - attack against block: the same direction reflects the attacker,
-//   a different one pushes the blocker back
+// - attack against block: a parrying block (see Stance.PARRIES - above
+//   is blocked from below and vice versa) reflects the attacker,
+//   any other pushes the blocker back
 // - both block: both reflected
 // - only one has a stance: the one without is pushed back
 // - neither has one: both reflected
@@ -99,7 +100,11 @@ class Clash {
 
         if (attackA !== attackB) {
 
-            if (same) {
+            const parried = attackA
+                ? Stance.parries(b.direction, a.direction)
+                : Stance.parries(a.direction, b.direction);
+
+            if (parried) {
                 return attackA
                     ? Clash.result(Clash.REFLECTED, Clash.FIRM, "block matches, attacker reflected")
                     : Clash.result(Clash.FIRM, Clash.REFLECTED, "block matches, attacker reflected");

@@ -444,7 +444,7 @@ function startGame() {
 // stances.
 //
 // The player:
-// - ArrowUp/ArrowDown attack from above/below, taken at once (its set
+// - ArrowUp/ArrowDown attack from below/above, taken at once (its set
 //   up is only shown, see Stance.SETUP_STEP). With an attack held,
 //   they switch its direction.
 // - in combat, ArrowLeft dashes left and ArrowRight right: a fresh press toward the
@@ -452,7 +452,7 @@ function startGame() {
 //   PlayerController.js)
 // - holding the other one (away from the enemy) brakes; once
 //   stopped, the player takes the block. The shield sits by itself
-//   where the enemy's attack comes from (see shieldDirection()). It
+//   where it parries the enemy's attack (see shieldDirection()). It
 //   lasts while the key is held; up/down do nothing meanwhile.
 //
 // The enemy picks its stances itself - see EnemyTactics.js.
@@ -508,7 +508,7 @@ function isBlocking(fighter) {
 }
 
 
-// ArrowUp/ArrowDown: an above/below attack. Taken at once, with the same set up
+// ArrowUp/ArrowDown: a below/above attack (see SWORD_KEYS). Taken at once, with the same set up
 // display as the enemy's (see Stance.SETUP_STEP).
 function drawSword(direction) {
 
@@ -536,15 +536,15 @@ function alignShield() {
 }
 
 
-// The player's shield is placed automatically: against the enemy's
-// attack, if it holds one; otherwise it stays where it is, or starts
+// The player's shield is placed automatically: where it parries the
+// enemy's attack (see Stance.PARRIES), if it holds one; otherwise it stays where it is, or starts
 // at SHIELD_DEFAULT_DIRECTION.
 const SHIELD_DEFAULT_DIRECTION = "dash";
 
 function shieldDirection() {
 
     if (enemy.stance && enemy.stance.kind === Stance.ATTACK) {
-        return enemy.stance.direction;
+        return Stance.PARRIES[enemy.stance.direction];
     }
 
     if (isBlocking(player)) {
