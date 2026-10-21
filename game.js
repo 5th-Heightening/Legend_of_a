@@ -36,8 +36,9 @@ const movement = new MovementSystem();
 
 
 // The order of one tick:
-// 1. input - the arrow keys pressed/held since the last tick
-// 2. objects - enemy AI, particles, ...
+// 1. input - the arrow keys and W/A/S/D pressed/held since the last
+//    tick
+// 2. objects - enemy AI, sword swing, particles, ...
 // 3. expired stances are dropped, enemy tactics, then every attacker
 //    heads for the other one at its constant speed
 // 4. movement - everything that moves, one cell at a time
@@ -47,6 +48,7 @@ function tick(dt) {
 
     if (gameStarted && player.alive) {
         playerController.update(dt);
+        swordController.update(dt);
     }
 
     world.update(dt);
@@ -100,13 +102,30 @@ const ground = new Ground();
 const player = new Player(PLAYER_START_X, START_ROW);
 const playerController = new PlayerController(player);
 
+// The player's sword, steered with W/A/S/D (see Sword.js,
+// SwordController.js). Extension point for the exact opposite
+// direction (e.g. a thrust): sword.hooks.reverse(from, to) - return
+// true to handle it, otherwise the sword turns over at once.
+const sword = new Sword(player);
+const swordController = new SwordController(sword);
+
+// Cells the player moves each time the sword arrives where it was
+// pointed (see Sword.arrive()).
+const SWORD_MOVE_CELLS = 1;
+
+sword.hooks.move = (direction, moves) => {
+    const { dx, dy } = Sword.DIRECTIONS[direction];
+    const cells = moves * SWORD_MOVE_CELLS;
+
+    player.mover.queueStep(dx * cells, dy * cells);
+};
+
 const enemy = new Enemy(ENEMY_START_X, START_ROW, 5, 35, player);
 
 // Decides when the two are in combat - see RubberBand.engaged(). Its
-// pull isn't used: in combat the speed is constant (see "Combat"
-// below).
+// pull isn't used: in combat the enemy's speed is constant (see
+// "Combat" below).
 const rubberBand = new RubberBand(player, enemy);
-playerController.rubberBand = rubberBand;
 enemy.rubberBand = rubberBand;
 
 
@@ -425,6 +444,7 @@ function startGame() {
     world.add(ground);
     world.add(enemy);
     world.add(player);
+    world.add(sword);
     world.add(initiative);
 
     registerMovement();
@@ -437,7 +457,11 @@ function startGame() {
 // ==================================================
 // Combat: attack stances (see Stance.js)
 //
-// The speed is constant: nothing accelerates or brakes a fighter in
+// Only the enemy takes stances; the player fences with its sword (see
+// Sword.js) and walks with the arrow keys, in combat too - its speed
+// only comes from pushes and brakes (see PlayerController.brake()).
+//
+// The enemy's speed is constant: nothing accelerates or brakes it in
 // combat. It only changes at once, to one of:
 // - ATTACK_SPEED toward the other fighter, while it holds an attack
 //   stance (see steerAttackers()) - also when the other one moves
@@ -447,17 +471,13 @@ function startGame() {
 // - 0, after running into something too slowly to die (see the
 //   movement rules)
 // Outside of combat the old braking still applies (see
-// PlayerController.brake(), Enemy.update()).
+// Enemy.update()).
 //
-// Each fighter holds at most one stance: an attack from above, below
+// A fighter holds at most one stance: an attack from above, below
 // or as a dash. Every collision deletes both stances. A stance also
 // expires Stance.DURATION after it was taken - it's deleted and its
 // owner loses the initiative (see expireStances()).
 //
-// The player:
-// - W/S attack from above/below
-// - in combat, A/D toward the enemy: the dash attack (see
-//   PlayerController.js)
 // Taking a stance claims the initiative (see Initiative.js,
 // FIRST_CLAIM_KEEPS). While a stance is held, no other one can be
 // taken - not even another direction.
@@ -520,29 +540,11 @@ function expireStances() {
 }
 
 
-// W/S: an above/below attack.
-function drawSword(direction) {
-
-    if (!player.alive) {
-        return;
-    }
-
-    setStance(player, direction);
-}
-
-
-// The player's stance for a collision, or null.
+// The player's stance for a collision, or null - always null for now:
+// the sword (see Sword.js) isn't part of the clash yet.
 function playerCombatStance() {
     return player.stance;
 }
-
-
-playerController.hooks = {
-
-    charge() {
-        setStance(player, "dash");
-    }
-};
 
 
 const enemyTactics = new EnemyTactics(enemy, rubberBand, {
@@ -652,6 +654,7 @@ function killPlayer() {
     clearStance(player);
     stopSquiggle();
 
+    world.remove(sword);
     world.remove(player);
     movement.remove(player);
 
@@ -922,10 +925,9 @@ function stopSquiggle() {
 // ==================================================
 // Input: title screen -> game, then play
 //
-// The key handlers only record input - arrow keys and A/D go to the
-// PlayerController, which acts on them on the next tick. Weapons are
-// created right away, but they too only count (and show) from the
-// next tick on.
+// The key handlers only record input - arrow keys go to the
+// PlayerController, W/A/S/D to the SwordController, which act on them
+// on the next tick.
 // ==================================================
 
 document.addEventListener("keydown", event => {
@@ -938,19 +940,8 @@ document.addEventListener("keydown", event => {
 
     const key = event.key.toLowerCase();
 
-    // Auto-repeat is ignored: a held key would keep making the enemy
-    // react anew (see EnemyTactics.js).
-    if (key === "w") {
-        if (!event.repeat) {
-            drawSword("above");
-        }
-        return;
-    }
-
-    if (key === "s") {
-        if (!event.repeat) {
-            drawSword("below");
-        }
+    if (swordController.handles(event.key)) {
+        swordController.press(event.key);
         return;
     }
 
@@ -973,13 +964,20 @@ document.addEventListener("keyup", event => {
         stopSquiggle();
     }
 
+    if (swordController.handles(event.key)) {
+        swordController.release(event.key);
+    }
+
     if (playerController.handles(event.key)) {
         playerController.release(event.key);
     }
 });
 
 
-window.addEventListener("blur", () => playerController.releaseAll());
+window.addEventListener("blur", () => {
+    playerController.releaseAll();
+    swordController.releaseAll();
+});
 
 
 // Last, once everything above exists.

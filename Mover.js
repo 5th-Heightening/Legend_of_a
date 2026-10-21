@@ -80,11 +80,12 @@ class Mover {
     }
 
 
-    // Moves exactly one step (dx, dy) on the next tick, regardless of
-    // velocity.
+    // Moves (dx, dy) cells on the next tick, regardless of velocity.
+    // Several steps queued in one tick add up (e.g. an arrow step and
+    // a sword move, see Sword.js).
     queueStep(dx, dy) {
-        this.queuedX = dx;
-        this.queuedY = dy;
+        this.queuedX += dx;
+        this.queuedY += dy;
     }
 
 

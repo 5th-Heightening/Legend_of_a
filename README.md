@@ -29,8 +29,10 @@ by `SplashScreen.js`/`SpeechBubble.js` before this split:
 | [MovementSystem.js](MovementSystem.js) | Moves every registered `MovingObject` once per tick, one cell at a time, against per-object rules. |
 | [RubberBand.js](RubberBand.js) | Decides when the two are in combat (its pull is unused on this branch) — see "Rubber band" below. |
 | [Player.js](Player.js) | Player state (`extends MovingObject`): facing and `stance`. |
-| [PlayerController.js](PlayerController.js) | Arrow-key and A/D input → player steps / braking / dash attack, sampled once per tick. |
-| [Stance.js](Stance.js) | A fighter's attack (above, below, dash), drawn in front of its owner — see "Combat" below. |
+| [PlayerController.js](PlayerController.js) | Arrow-key input → player steps / braking, sampled once per tick. |
+| [Sword.js](Sword.js) | The player's sword: 8 directions, swing through the positions in between, trail — see "Sword" below. |
+| [SwordController.js](SwordController.js) | W/A/S/D input → sword direction, sampled once per tick — see "Sword" below. |
+| [Stance.js](Stance.js) | The enemy's attack (above, below, dash), drawn in front of it — see "Combat" below. |
 | [Clash.js](Clash.js) | Decides a collision from both stances (stopped / pushed) — see "Push" below. |
 | [Initiative.js](Initiative.js) | Which fighter holds the initiative: particle trail — see "Combat" below. |
 | [EnemyTactics.js](EnemyTactics.js) | When the enemy takes its stance in combat — see "Enemy" below. |
@@ -57,7 +59,8 @@ fails at the first `new` call, not at parse time:
    button element (already in the HTML above it).
 2. `AsciiRenderer.js`, `GameLoop.js`, `World.js`
 3. `Mover.js`, `MovingObject.js`, `MovementSystem.js`
-   `RubberBand.js`, then `Player.js`, `PlayerController.js`, `Stance.js`, `Clash.js`,
+   `RubberBand.js`, then `Player.js`, `PlayerController.js`, `Sword.js`,
+   `SwordController.js`, `Stance.js`, `Clash.js`,
    `Initiative.js`, `EnemyTactics.js`, `Ground.js`, `Enemy.js`, `Squiggle.js`,
    `ParallaxObject.js`, `LevelPart.js`, `Level.js`, then the level
    files `levels/*.js` — in that order specifically, since
@@ -156,12 +159,12 @@ counter and advances it in `update(dt)`.
 One tick, in this order:
 
 1. **Input** — `playerController.update(dt)` turns the arrow keys
-   pressed/held since the last tick into a queued step, brakes the
-   player's speed outside of combat, or takes the dash attack (see
-   "Combat").
+   pressed/held since the last tick into a queued step and brakes the
+   player's speed; `swordController.update(dt)` turns W/A/S/D into
+   the sword's new direction (see "Sword").
 2. **Objects** — `world.update(dt)`: every object in the `World`
    ([World.js](World.js)) that has an `update(dt)` method runs it —
-   enemy AI, particles, squiggle, title
+   enemy AI, sword swing, particles, squiggle, title
    blink. Any object that sets `alive = false` is removed from the
    world *and* the renderer right there.
 3. **Rubber band** — `rubberBand.update(dt)` pulls player and enemy
@@ -172,10 +175,10 @@ One tick, in this order:
    moved.
 6. **Draw** — `renderer.render()`, the only render call in the game.
 
-Key handlers never move or render anything themselves. Arrow keys are
-only recorded (the controller acts on them on the next tick), and
-`W`/`S`/`E` create their objects right away, but those are drawn and
-checked from the next tick on. Input is therefore at most one tick
+Key handlers never move or render anything themselves. Arrow keys and
+`W`/`A`/`S`/`D` are only recorded (the controllers act on them on the
+next tick), and `E` creates its squiggle right away, but it's drawn
+from the next tick on. Input is therefore at most one tick
 (40ms) late, and always on the beat.
 
 `world.add(obj)`/`world.remove(obj)` replace direct
@@ -203,8 +206,9 @@ one value:
   running into something.
 
 On top of that, **queued steps** (`queueStep(dx, dy)`) move exactly
-one cell on the next tick, for grid-exact movement like the player's
-walk.
+that many cells on the next tick, for grid-exact movement like the
+player's walk and its sword moves. Steps queued in the same tick add
+up.
 
 `advance(dt)` adds the velocities to a hidden sub-cell offset, takes
 off the whole cells crossed and returns them (plus any queued step).
@@ -293,9 +297,11 @@ the key handlers only call `playerController.press(key, repeat)`/
 - a tap pressed *and* released between two ticks still counts
 - while pushed, the player keeps moving, except when holding the arrow
   against the push (digging in, see "Push")
+- the same in and out of combat: the player has no speed of its own,
+  only pushes move it (and brake, see "Push")
 
-A window `blur` drops all held arrows, since no `keyup` would arrive
-for them.
+A window `blur` drops all held arrows (and sword keys), since no
+`keyup` would arrive for them.
 
 `player.facing` is `"left"` or `"right"` (default `"right"`), set by
 the controller whenever `ArrowLeft`/`ArrowRight` is the active
@@ -304,6 +310,63 @@ if the move itself is blocked by a collision, since it's about which
 way the player is turned, not whether they actually moved. While
 pushed, `facing` doesn't change, so the player stays turned toward
 where the push came from.
+
+## Sword
+
+*Experimental, new design on branch `constant-speed-fencing`.* The
+player holds a `Sword` ([Sword.js](Sword.js), `z = 25`) in one of
+eight directions around it, 45° apart, on the `Sword.LENGTH` (1)
+cells next to it in that direction:
+
+```
+ \ | /      W+A  W  W+D
+ - A -       A   ·   D
+ / | \      S+A  S  S+D
+```
+
+**Steering** ([SwordController.js](SwordController.js)): the held
+keys add up to the direction — `W` up, `S` down, `A` left, `D` right,
+two neighbouring keys a diagonal. Opposite keys cancel out. With no
+key held the sword stays where it is. A combination only counts once
+it's held for `SwordController.SETTLE` (60 ms), since the two keys of
+a diagonal never go down or up at exactly the same moment: without it,
+letting go of `W`+`A` would swing to `A` (or `W`) first. A combination
+reached by *pressing* a key also counts if all keys are released
+before that (a quick tap); one only left over from releasing keys
+doesn't.
+
+**Swing:** `sword.point(direction)` doesn't jump. The sword swings
+the short way round through every position in between, one per
+`Sword.SWING_STEP` (40 ms). A new direction mid-swing redirects it
+from where it is now.
+
+**Moving with the sword:** once the sword arrives where it was
+pointed, the player moves `SWORD_MOVE_CELLS` (1, in
+[game.js](game.js)) that way (`sword.hooks.move`, a queued step, so
+the movement rules apply as for walking). Pointing it again where it
+already is (releasing the keys and pressing them again) moves once
+more, right away; doing that while it's still swinging there adds a
+move on arrival. Redirecting a swing drops the moves owed to the old
+target. Holding the keys doesn't repeat.
+
+**Reverse (hook):** the exact opposite of the current position is
+taken at once, without a swing (`reverse()`). To change that, e.g.
+for a thrust, set `sword.hooks.reverse = (from, to) => { ...; return
+true; }` in [game.js](game.js) — returning `true` means the hook
+handled it (moving the player too, if it should); otherwise the
+sword turns over directly (`jumpTo()`) and the player moves that
+way. Whether that jump leaves a trail is
+`Sword.REVERSE_LEAVES_TRAIL`.
+
+**Trail:** every position the sword leaves, intermediate ones
+included, stays visible for `Sword.TRAIL_DURATION` (120 ms), drawn
+like the sword. `sword.activeCells()` returns the sword's and the
+trail's cells (`{ x, y, char }`) — meant for hit checks, but **not
+wired into combat yet**: the player has no stance any more, so every
+clash counts as "player: none" (see "Push").
+
+The trail moves along with the player (it's relative to it, like the
+sword).
 
 ## Combat: constant speed
 
@@ -340,10 +403,10 @@ deletes it, and its owner loses the initiative if it held it
 (`initiative.release()`). The fighter keeps its speed. An expired enemy
 stance restarts `enemyTactics.reset()`, as after a collision.
 
-- **Player:** `W`/`S` attack from above/below; in combat, `A`/`D`
-  toward the enemy take the dash attack (the other one does nothing,
-  and the speed isn't the player's to change). Left/right arrows don't
-  step in combat; up/down step as usual.
+- **Player:** takes no stances any more — it fences with its sword
+  (see "Sword") and walks with the arrow keys, in combat too. The
+  constant speed doesn't apply to it: its speed only comes from
+  pushes, and brakes (see "Push").
 - **Enemy:** see "Enemy stances" below.
 
 **Initiative** ([Initiative.js](Initiative.js)): every new stance
@@ -466,11 +529,12 @@ the player).
   cells/s). `DeathJump.GRAVITY` (40 cells/s²) pulls it back down
   (peak ≈ 4 cells) until it has fallen below the play area's bottom
   edge, where it removes itself.
-- In combat the speed doesn't brake: it's constant (see "Combat").
-- Outside of combat the speed brakes toward 0:
-  - Enemy: see "Enemy" — `Enemy.BRAKE` (20 cells/s²) until it can
-    patrol again.
-  - Player (balance, not control): the player keeps moving and
+- In combat the enemy's speed doesn't brake: it's constant (see
+  "Combat").
+- Otherwise the speed brakes toward 0:
+  - Enemy (outside of combat): see "Enemy" — `Enemy.BRAKE` (20
+    cells/s²) until it can patrol again.
+  - Player (always, balance, not control): the player keeps moving and
     steering. `PlayerController.brake()` takes
     `PlayerController.BRAKE` (10 cells/s²) off, scaled by the active
     arrow:
