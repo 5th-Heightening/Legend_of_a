@@ -4,7 +4,8 @@
 //
 // After every collision (reset()) the enemy waits STANCE_DELAY, then
 // takes an attack stance in a random direction (see
-// Stance.DIRECTIONS) - and keeps it until the next collision. Taking
+// Stance.DIRECTIONS) - and keeps it until the next collision, or
+// until it expires (Stance.DURATION, also calls reset()). Taking
 // it sends the enemy toward the player (see steerAttackers() in
 // game.js).
 //

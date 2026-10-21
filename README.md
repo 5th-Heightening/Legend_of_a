@@ -332,18 +332,25 @@ right; mirrored facing left), with the set up display of
 `Stance.SETUP_STEP`. A dash stance is on its owner's row, so it adds
 reach (`combatParts()`).
 
+A stance lasts only `Stance.DURATION` (1000 ms) from when it was
+taken, and the fighter is committed to it: until it expires (or a
+collision deletes it), `setStance()` ignores any new stance, also
+another direction. Then `expireStances()`
+deletes it, and its owner loses the initiative if it held it
+(`initiative.release()`). The fighter keeps its speed. An expired enemy
+stance restarts `enemyTactics.reset()`, as after a collision.
+
 - **Player:** `W`/`S` attack from above/below; in combat, `A`/`D`
   toward the enemy take the dash attack (the other one does nothing,
   and the speed isn't the player's to change). Left/right arrows don't
   step in combat; up/down step as usual.
 - **Enemy:** see "Enemy stances" below.
 
-**Initiative** ([Initiative.js](Initiative.js)): every new stance,
-and every switch to another direction, claims it
-(`initiative.claim()`); taking the same stance again changes nothing.
+**Initiative** ([Initiative.js](Initiative.js)): every new stance
+claims it (`initiative.claim()`).
 With `Initiative.FIRST_CLAIM_KEEPS` on (default), only the first
 fighter to take a stance after a collision gets it and keeps it until
-the next collision; with it off, whoever has taken its stance last
+the next collision or until its stance expires; with it off, whoever has taken its stance last
 holds it. It decides a collision of two
 different stances (see "Push") and shows as the particle trail behind its
 holder (`leaveInitiativeTrail()`). Every collision resets it.
@@ -377,7 +384,8 @@ itself is never reassigned/replaced.
 **Enemy stances** ([EnemyTactics.js](EnemyTactics.js)): in combat,
 after every collision (`reset()`), the enemy waits
 `EnemyTactics.STANCE_DELAY` (500 ms), then takes an attack stance in
-a random direction and keeps it until the next collision. That sends
+a random direction and keeps it until the next collision or until it
+expires (`Stance.DURATION`) — then it waits again. That sends
 it toward the player at `ATTACK_SPEED` (see "Combat").
 
 The enemy isn't in `parallaxObjects` (it has no corners, its position

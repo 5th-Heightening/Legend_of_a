@@ -4,7 +4,7 @@
 // the stance and draws it one cell in front of its owner, on the row
 // of its direction. Glued to the owner via getters, so it moves and
 // turns along. Every collision deletes it (see clearStance() in
-// game.js).
+// game.js), and so does its expiry after DURATION.
 //
 // Each look's char is written for facing right; facing left it's
 // mirrored. A dash stance is held on its owner's own row, so it adds
@@ -54,6 +54,11 @@ class Stance {
     // (0 = straight above/below it). The finished stance is 1 in front.
     static SETUP_DX = 0;
 
+    // Milliseconds a stance lasts after it was taken; then it expires
+    // (see expireStances() in game.js). Until then its owner can't
+    // take another one (see setStance() in game.js).
+    static DURATION = 1000;
+
     // Every stance there is, as plain { kind, direction } - e.g. for
     // the enemy to pick from (see EnemyTactics.js).
     static OPTIONS = Stance.KINDS.flatMap(kind =>
@@ -83,6 +88,9 @@ class Stance {
 
         // Time (ms) since the set up started.
         this.setupTime = 0;
+
+        // Time (ms) since the stance was taken.
+        this.age = 0;
     }
 
 
@@ -126,7 +134,16 @@ class Stance {
     }
 
 
+    // Held for Stance.DURATION already.
+    get expired() {
+        return this.age >= Stance.DURATION;
+    }
+
+
     update(dt) {
+
+        this.age += dt;
+
         if (this.settingUp) {
             this.setupTime += dt;
         }

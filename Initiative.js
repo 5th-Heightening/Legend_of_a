@@ -3,8 +3,8 @@
 //
 // After a collision nobody holds it (reset()). With FIRST_CLAIM_KEEPS
 // on, the first fighter to take a stance afterwards holds it until the
-// next collision; with it off, every stance taken (also a change of
-// direction) hands it to the one taking it. Shown as a MARK above
+// next collision - or until its stance expires (release()); with it
+// off, every stance taken hands it to the one taking it. Shown as a MARK above
 // the holder's head, glued to it via getters, so it moves along.
 // Hidden while nobody holds it or the holder is dead.
 //
@@ -80,6 +80,15 @@ class Initiative {
     // After a collision: nobody holds it.
     reset() {
         this.holder = null;
+    }
+
+
+    // `fighter`'s stance expired: if it held the initiative, nobody
+    // does now.
+    release(fighter) {
+        if (this.holder === fighter) {
+            this.holder = null;
+        }
     }
 
 

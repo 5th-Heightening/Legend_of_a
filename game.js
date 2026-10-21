@@ -38,8 +38,8 @@ const movement = new MovementSystem();
 // The order of one tick:
 // 1. input - the arrow keys pressed/held since the last tick
 // 2. objects - enemy AI, particles, ...
-// 3. enemy tactics, then every attacker heads for the other one at
-//    its constant speed
+// 3. expired stances are dropped, enemy tactics, then every attacker
+//    heads for the other one at its constant speed
 // 4. movement - everything that moves, one cell at a time
 // 5. combat - player/enemy encounter, initiative trail
 // 6. draw
@@ -52,6 +52,7 @@ function tick(dt) {
     world.update(dt);
 
     if (gameStarted) {
+        expireStances();
         enemyTactics.update(dt);
         steerAttackers();
 
@@ -449,15 +450,17 @@ function startGame() {
 // PlayerController.brake(), Enemy.update()).
 //
 // Each fighter holds at most one stance: an attack from above, below
-// or as a dash. Every collision deletes both stances.
+// or as a dash. Every collision deletes both stances. A stance also
+// expires Stance.DURATION after it was taken - it's deleted and its
+// owner loses the initiative (see expireStances()).
 //
 // The player:
 // - W/S attack from above/below
 // - in combat, A/D toward the enemy: the dash attack (see
 //   PlayerController.js)
-// Taking a stance - or switching to another direction - claims the
-// initiative (see Initiative.js, FIRST_CLAIM_KEEPS); taking the same
-// one again changes nothing.
+// Taking a stance claims the initiative (see Initiative.js,
+// FIRST_CLAIM_KEEPS). While a stance is held, no other one can be
+// taken - not even another direction.
 //
 // The enemy takes its stance EnemyTactics.STANCE_DELAY after every
 // collision - see EnemyTactics.js.
@@ -468,27 +471,17 @@ const ATTACK_SPEED = 8;
 
 const initiative = new Initiative();
 
-// Takes an attack stance from `direction`. An existing stance just
-// changes its direction. Either way the fighter claims the initiative,
-// unless the stance stays as it is.
+// Takes an attack stance from `direction` and claims the initiative.
+// A fighter that already holds a stance is committed to it: nothing
+// changes until it expires or a collision deletes it.
 function setStance(fighter, direction) {
 
-    if (fighter.alive === false) {
+    if (fighter.alive === false || fighter.stance) {
         return;
     }
 
-    if (fighter.stance) {
-
-        if (fighter.stance.direction === direction) {
-            return;
-        }
-
-        fighter.stance.direction = direction;
-    }
-    else {
-        fighter.stance = new Stance(fighter, Stance.ATTACK, direction);
-        world.add(fighter.stance);
-    }
+    fighter.stance = new Stance(fighter, Stance.ATTACK, direction);
+    world.add(fighter.stance);
 
     initiative.claim(fighter);
 }
@@ -502,6 +495,28 @@ function clearStance(fighter) {
 
     world.remove(fighter.stance);
     fighter.stance = null;
+}
+
+
+// Called in tick() before the enemy tactics: deletes every stance
+// held for Stance.DURATION, and its owner's initiative. The enemy then
+// takes a new one after EnemyTactics.STANCE_DELAY, as after a
+// collision. A fighter keeps its speed (see "constant speed" above).
+function expireStances() {
+
+    for (const fighter of [player, enemy]) {
+
+        if (!fighter.stance || !fighter.stance.expired) {
+            continue;
+        }
+
+        clearStance(fighter);
+        initiative.release(fighter);
+
+        if (fighter === enemy) {
+            enemyTactics.reset();
+        }
+    }
 }
 
 
